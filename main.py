@@ -2,6 +2,7 @@ import flet as ft
 import base64
 import json
 import os
+import shutil
 import socket
 import asyncio
 import re
@@ -15,12 +16,13 @@ KATALOG_DANYCH = os.getenv("FLET_APP_STORAGE_DATA", os.getcwd())
 os.makedirs(KATALOG_DANYCH, exist_ok=True)
 
 CONFIG_FILE = os.path.join(KATALOG_DANYCH, "ocrlmm_mobile_config.json")
-BAZA_TOWAROWA_FILE = os.path.join(KATALOG_DANYCH, "WĘDLINA.txt")
+DOMYSLNA_BAZA_FILE = os.path.join(KATALOG_DANYCH, "WĘDLINA.txt")
 
 DOMYSLNA_KONFIGURACJA = {
     "wol_mac": "2C:F0:5D:E4:8E:85",
     "use_cloud": True,
     "use_db_matching": True,
+    "baza_file_path": DOMYSLNA_BAZA_FILE,
     "gemini_api_key": "",
     "gemini_model": "gemini-2.5-flash",
     "gemini_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -30,13 +32,41 @@ DOMYSLNA_KONFIGURACJA = {
     "local_api_key": ""
 }
 
-def wczytaj_baze_pcmarket() -> list[dict]:
+def wczytaj_konfiguracje() -> dict:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                dane = json.load(f)
+                konf = DOMYSLNA_KONFIGURACJA.copy()
+                konf.update(dane)
+                return konf
+        except Exception:
+            return DOMYSLNA_KONFIGURACJA.copy()
+    return DOMYSLNA_KONFIGURACJA.copy()
+
+def zapisz_konfiguracje(konf: dict):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(konf, f, indent=2)
+    except Exception as e:
+        print(f"Błąd zapisu konfiguracji: {e}")
+
+def pobierz_aktualna_sciezke_bazy(konf: dict) -> str:
+    sciezka = konf.get("baza_file_path", DOMYSLNA_BAZA_FILE)
+    if os.path.exists(sciezka):
+        return sciezka
+    
+    sciezka_lokalna = os.path.join(os.getcwd(), "WĘDLINA.txt")
+    if os.path.exists(sciezka_lokalna):
+        return sciezka_lokalna
+        
+    return sciezka
+
+def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
     towary = []
-    sciezka = BAZA_TOWAROWA_FILE
-    if not os.path.exists(sciezka):
-        sciezka_lokalna = os.path.join(os.getcwd(), "WĘDLINA.txt")
-        if os.path.exists(sciezka_lokalna):
-            sciezka = sciezka_lokalna
+    if not sciezka:
+        konf = wczytaj_konfiguracje()
+        sciezka = pobierz_aktualna_sciezke_bazy(konf)
 
     if os.path.exists(sciezka):
         kodowania = ["windows-1250", "utf-8", "cp852"]
@@ -90,25 +120,6 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
 
     return kod_faktura_clean, ""
 
-def wczytaj_konfiguracje() -> dict:
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                dane = json.load(f)
-                konf = DOMYSLNA_KONFIGURACJA.copy()
-                konf.update(dane)
-                return konf
-        except Exception:
-            return DOMYSLNA_KONFIGURACJA.copy()
-    return DOMYSLNA_KONFIGURACJA.copy()
-
-def zapisz_konfiguracje(konf: dict):
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(konf, f, indent=2)
-    except Exception as e:
-        print(f"Błąd zapisu konfiguracji: {e}")
-
 def wyslij_wol(mac_address: str):
     czysty_mac = mac_address.replace(":", "").replace("-", "").replace(".", "")
     if len(czysty_mac) != 12:
@@ -121,8 +132,8 @@ def wyslij_wol(mac_address: str):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.sendto(magic_packet, ("<broadcast>", 9))
 
-def generuj_tekst_edi(dane: dict, uzywaj_bazy: bool) -> str:
-    baza_towarowa = wczytaj_baze_pcmarket() if uzywaj_bazy else []
+def generuj_tekst_edi(dane: dict, uzywaj_bazy: bool, sciezka_bazy: str = None) -> str:
+    baza_towarowa = wczytaj_baze_pcmarket(sciezka_bazy) if uzywaj_bazy else []
     pozycje = dane.get("pozycje", [])
     wyst = dane.get("wystawca", {})
     odb = dane.get("odbiorca", {})
@@ -258,7 +269,7 @@ async def main(page: ft.Page):
     )
 
     chk_db_matching = ft.Checkbox(
-        label="Dopasowuj do bazy PC-Market (WĘDLINA.txt)",
+        label="Dopasowuj do bazy PC-Market",
         value=konfig.get("use_db_matching", True)
     )
 
@@ -341,20 +352,64 @@ async def main(page: ft.Page):
         on_click=klik_budzenie_wol
     )
 
-    liczba_towarow = len(wczytaj_baze_pcmarket())
+    sciezka_biezaca_bazy = pobierz_aktualna_sciezke_bazy(konfig)
+    baza_towarowa_cache = wczytaj_baze_pcmarket(sciezka_biezaca_bazy)
+    liczba_towarow = len(baza_towarowa_cache)
+    nazwa_bazy_wyswietlana = os.path.basename(sciezka_biezaca_bazy)
+
     lbl_status_bazy = ft.Text(
-        f"Załadowano {liczba_towarow} pozycji z pliku WĘDLINA.txt" if liczba_towarow > 0 else "Nie znaleziono pliku WĘDLINA.txt w katalogu!",
+        f"Załadowano {liczba_towarow} poz. z: {nazwa_bazy_wyswietlana}" if liczba_towarow > 0 else f"Brak towarów w pliku: {nazwa_bazy_wyswietlana}",
         size=12,
         color=ft.Colors.GREEN_300 if liczba_towarow > 0 else ft.Colors.ORANGE_300
+    )
+
+    picker_bazy = ft.FilePicker()
+    page.services.append(picker_bazy)
+
+    async def wybierz_plik_bazy(e):
+        try:
+            pliki = await picker_bazy.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["txt"]
+            )
+            if pliki and len(pliki) > 0:
+                sciezka_zrodlowa = pliki[0].path
+                if sciezka_zrodlowa:
+                    oryginalna_nazwa = os.path.basename(sciezka_zrodlowa)
+                    docelowa_sciezka = os.path.join(KATALOG_DANYCH, oryginalna_nazwa)
+                    try:
+                        shutil.copyfile(sciezka_zrodlowa, docelowa_sciezka)
+                    except Exception:
+                        docelowa_sciezka = sciezka_zrodlowa
+
+                    konfig["baza_file_path"] = docelowa_sciezka
+                    zapisz_konfiguracje(konfig)
+
+                    nowa_baza = wczytaj_baze_pcmarket(docelowa_sciezka)
+                    nowa_ilosc = len(nowa_baza)
+                    lbl_status_bazy.value = f"Załadowano {nowa_ilosc} poz. z: {oryginalna_nazwa}"
+                    lbl_status_bazy.color = ft.Colors.GREEN_300 if nowa_ilosc > 0 else ft.Colors.ORANGE_300
+                    status_text.value = f"Wczytano nową bazę ({nowa_ilosc} towarów)."
+                    status_text.color = ft.Colors.CYAN_ACCENT
+                    page.update()
+        except Exception as err_baza:
+            pokaz_okno_bledu("Błąd wczytywania bazy", str(err_baza))
+
+    btn_wybierz_baze = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.FOLDER_OPEN), ft.Text("Wybierz plik bazy (.txt)")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_900, color=ft.Colors.WHITE),
+        on_click=wybierz_plik_bazy
     )
 
     kontener_baza_pcmarket = ft.Column(
         [
             ft.Text("Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300),
             chk_db_matching,
+            btn_wybierz_baze,
             lbl_status_bazy
         ],
-        spacing=4
+        spacing=6
     )
 
     kontener_gemini = ft.Column(
@@ -399,6 +454,16 @@ async def main(page: ft.Page):
     pasek_postepu = ft.ProgressBar(visible=False, color=ft.Colors.GREEN_ACCENT)
     podglad_obrazu = ft.Image(src="", visible=False, fit="contain", height=240)
 
+    def ustaw_stan_przycisku_foto(czy_ma_zdjecie: bool):
+        if czy_ma_zdjecie:
+            ikona_btn_foto.name = ft.Icons.SEND
+            tekst_btn_foto.value = "Wyślij do analizy"
+            btn_foto.style.bgcolor = ft.Colors.BLUE_700
+        else:
+            ikona_btn_foto.name = ft.Icons.PHOTO_LIBRARY
+            tekst_btn_foto.value = "Wybierz zdjęcie specyfikacji / faktury"
+            btn_foto.style.bgcolor = ft.Colors.GREEN_800
+
     def usun_wybrane_zdjecie(e):
         aktualne_zdjecie["sciezka"] = None
         podglad_obrazu.src = ""
@@ -407,6 +472,7 @@ async def main(page: ft.Page):
         btn_udostepnij.visible = False
         btn_ponow.visible = False
         wiersz_obrotu.visible = False
+        ustaw_stan_przycisku_foto(False)
         status_text.value = "Zdjęcie usunięte. Wybierz nowe zdjęcie."
         status_text.color = ft.Colors.GREEN_ACCENT
         page.update()
@@ -430,7 +496,6 @@ async def main(page: ft.Page):
             podglad_obrazu.src = f"{sciezka}?t={datetime.now().timestamp()}"
             status_text.value = f"Obrócono zdjęcie o {abs(kat)}°. Kliknij 'Wyślij do analizy'."
             status_text.color = ft.Colors.CYAN_ACCENT
-            btn_ponow.visible = True
             page.update()
         except Exception as err_rot:
             status_text.value = f"Błąd obracania: {err_rot}"
@@ -665,7 +730,8 @@ async def main(page: ft.Page):
                 raise ValueError("Błąd parsowania odpowiedzi JSON.")
 
             zgodne_sumy, info_sumy = weryfikuj_sumy_netto(dane)
-            tresc_edi = generuj_tekst_edi(dane, uzywa_bazy)
+            aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(konfig)
+            tresc_edi = generuj_tekst_edi(dane, uzywa_bazy, aktualna_baza_sciezka)
 
             nr_dok = "".join(c for c in dane.get("nr_dok", "faktura") if c.isalnum() or c in ("-", "_"))
             nazwa_pliku = f"edi_{nr_dok}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -700,43 +766,48 @@ async def main(page: ft.Page):
             
             status_text.value = f"Błąd: {komunikat}"
             status_text.color = ft.Colors.RED_ACCENT
-            btn_ponow.visible = True
         finally:
             pasek_postepu.visible = False
             btn_foto.disabled = False
+            btn_ponow.visible = True
             btn_usun_zdjecie.visible = True
             wiersz_obrotu.visible = True
             page.update()
 
-    # Inicjalizacja FilePickera jako service (Flet >=0.80): rejestracja w page.services,
-    # a wynik wyboru pliku odczytywany bezpośrednio z await picker.pick_files(...)
     picker = ft.FilePicker()
     page.services.append(picker)
 
-    async def wybierz_zdjecie(e):
-        try:
-            pliki = await picker.pick_files(
-                allow_multiple=False,
-                file_type=ft.FilePickerFileType.IMAGE
-            )
-            if pliki and len(pliki) > 0:
-                wybrany = pliki[0].path
-                if wybrany:
-                    aktualne_zdjecie["sciezka"] = wybrany
-                    podglad_obrazu.src = wybrany
-                    podglad_obrazu.visible = True
-                    btn_usun_zdjecie.visible = True
-                    wiersz_obrotu.visible = True
-                    btn_ponow.visible = True
-                    page.update()
-                    asyncio.create_task(przetworz_plik(wybrany))
-        except Exception as e_pick:
-            status_text.value = f"Błąd wyboru pliku: {e_pick}"
-            page.update()
+    async def klik_glowny_przycisk(e):
+        if aktualne_zdjecie["sciezka"]:
+            await przetworz_plik(aktualne_zdjecie["sciezka"])
+        else:
+            try:
+                pliki = await picker.pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.IMAGE
+                )
+                if pliki and len(pliki) > 0:
+                    wybrany = pliki[0].path
+                    if wybrany:
+                        aktualne_zdjecie["sciezka"] = wybrany
+                        podglad_obrazu.src = wybrany
+                        podglad_obrazu.visible = True
+                        btn_usun_zdjecie.visible = True
+                        wiersz_obrotu.visible = True
+                        ustaw_stan_przycisku_foto(True)
+                        status_text.value = "Zdjęcie załadowane. Sprawdź orientację i kliknij 'Wyślij do analizy'."
+                        status_text.color = ft.Colors.CYAN_ACCENT
+                        page.update()
+            except Exception as e_pick:
+                status_text.value = f"Błąd wyboru pliku: {e_pick}"
+                page.update()
+
+    ikona_btn_foto = ft.Icon(ft.Icons.PHOTO_LIBRARY)
+    tekst_btn_foto = ft.Text("Wybierz zdjęcie specyfikacji / faktury")
 
     btn_foto = ft.Button(
         content=ft.Row(
-            [ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("Wybierz zdjęcie specyfikacji / faktury")],
+            [ikona_btn_foto, tekst_btn_foto],
             alignment=ft.MainAxisAlignment.CENTER
         ),
         height=55,
@@ -745,7 +816,7 @@ async def main(page: ft.Page):
             color=ft.Colors.WHITE,
             shape=ft.RoundedRectangleBorder(radius=8)
         ),
-        on_click=wybierz_zdjecie
+        on_click=klik_glowny_przycisk
     )
 
     async def klik_ponow(e):
@@ -754,7 +825,7 @@ async def main(page: ft.Page):
 
     btn_ponow = ft.Button(
         content=ft.Row(
-            [ft.Icon(ft.Icons.REFRESH), ft.Text("Wyślij do analizy / Odśwież")],
+            [ft.Icon(ft.Icons.REFRESH), ft.Text("Ponów analizę")],
             alignment=ft.MainAxisAlignment.CENTER
         ),
         visible=False,
