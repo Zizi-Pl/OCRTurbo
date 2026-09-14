@@ -31,6 +31,8 @@ DOMYSLNA_KONFIGURACJA = {
     "local_api_key": ""
 }
 
+PUSTY_OBRAZ = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+
 def wczytaj_konfiguracje() -> dict:
     if os.path.exists(CONFIG_FILE):
         try:
@@ -136,7 +138,6 @@ def generuj_tekst_edi(dane: dict, uzywaj_bazy: bool, sciezka_bazy: str = None) -
     pozycje = dane.get("pozycje", [])
     wyst = dane.get("wystawca", {})
     odb = dane.get("odbiorca", {})
-    stawki = dane.get("stawki", [])
 
     nip_wyst = re.sub(r"\D", "", str(wyst.get("nip", "")))
     nip_odb = re.sub(r"\D", "", str(odb.get("nip", "")))
@@ -258,8 +259,8 @@ async def main(page: ft.Page):
     )
 
     def pokaz_okno_bledu(tytul: str, wiadomosc: str):
-        tytul_bledu.value = tytul
-        tresc_bledu.value = wiadomosc
+        tytul_bledu.value = str(tytul)
+        tresc_bledu.value = str(wiadomosc)
         page.show_dialog(dlg_alert)
 
     chk_cloud = ft.Checkbox(
@@ -411,13 +412,13 @@ async def main(page: ft.Page):
     chk_cloud.on_change = przelacz_profil
 
     status_text = ft.Text(
-        "Wybierz zdjęcie lub zrób zdjęcie aparatem.",
+        "Wybierz zdjęcie faktury z galerii.",
         size=13,
         color=ft.Colors.GREEN_ACCENT,
         text_align=ft.TextAlign.CENTER
     )
     pasek_postepu = ft.ProgressBar(visible=False, color=ft.Colors.GREEN_ACCENT)
-    podglad_obrazu = ft.Image(src="", visible=False, fit="contain", height=240)
+    podglad_obrazu = ft.Image(src=PUSTY_OBRAZ, visible=False, fit="contain", height=240)
 
     def ustaw_stan_przycisku_foto(czy_ma_zdjecie: bool):
         if czy_ma_zdjecie:
@@ -426,12 +427,18 @@ async def main(page: ft.Page):
             btn_foto.style.bgcolor = ft.Colors.BLUE_700
         else:
             ikona_btn_foto.name = ft.Icons.PHOTO_LIBRARY
-            tekst_btn_foto.value = "Wybierz zdjęcie z galerii"
+            tekst_btn_foto.value = "Wybierz zdjęcie faktury"
             btn_foto.style.bgcolor = ft.Colors.GREEN_800
 
     def ustaw_nowy_obraz(sciezka: str):
-        aktualne_zdjecie["sciezka"] = sciezka
-        podglad_obrazu.src = sciezka
+        nowa_sciezka = os.path.join(KATALOG_DANYCH, f"img_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
+        try:
+            shutil.copyfile(sciezka, nowa_sciezka)
+        except Exception:
+            nowa_sciezka = sciezka
+
+        aktualne_zdjecie["sciezka"] = nowa_sciezka
+        podglad_obrazu.src = nowa_sciezka
         podglad_obrazu.visible = True
         btn_usun_zdjecie.visible = True
         wiersz_obrotu.visible = True
@@ -442,14 +449,14 @@ async def main(page: ft.Page):
 
     def usun_wybrane_zdjecie(e):
         aktualne_zdjecie["sciezka"] = None
-        podglad_obrazu.src = ""
+        podglad_obrazu.src = PUSTY_OBRAZ
         podglad_obrazu.visible = False
         btn_usun_zdjecie.visible = False
         btn_udostepnij.visible = False
         btn_ponow.visible = False
         wiersz_obrotu.visible = False
         ustaw_stan_przycisku_foto(False)
-        status_text.value = "Zdjęcie usunięte. Wybierz nowe zdjęcie."
+        status_text.value = "Zdjęcie usunięte. Wybierz nowe zdjęcie faktury."
         status_text.color = ft.Colors.GREEN_ACCENT
         page.update()
 
@@ -460,33 +467,56 @@ async def main(page: ft.Page):
         on_click=usun_wybrane_zdjecie
     )
 
-    def obroc_zdjecie(kat):
+    async def obroc_zdjecie(kat):
         sciezka = aktualne_zdjecie["sciezka"]
         if not sciezka or not os.path.exists(sciezka):
             return
         try:
-            with Image.open(sciezka) as im:
-                obrocony = im.rotate(kat, expand=True)
-                obrocony.save(sciezka)
-            
-            podglad_obrazu.src = f"{sciezka}?t={datetime.now().timestamp()}"
+            loop = asyncio.get_running_loop()
+            nowa_sciezka = os.path.join(KATALOG_DANYCH, f"img_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg")
+
+            def wykonaj_obrot():
+                with Image.open(sciezka) as im:
+                    obrocony = im.rotate(kat, expand=True)
+                    # Bezpieczna konwersja do RGB w razie obecności kanału przezroczystości (RGBA/P)
+                    if obrocony.mode in ("RGBA", "P"):
+                        obrocony = obrocony.convert("RGB")
+                    obrocony.save(nowa_sciezka, format="JPEG", quality=95)
+
+            await loop.run_in_executor(None, wykonaj_obrot)
+
+            try:
+                if sciezka != nowa_sciezka and sciezka.startswith(KATALOG_DANYCH):
+                    os.remove(sciezka)
+            except Exception:
+                pass
+
+            aktualne_zdjecie["sciezka"] = nowa_sciezka
+            podglad_obrazu.src = nowa_sciezka
             status_text.value = f"Obrócono zdjęcie o {abs(kat)}°. Kliknij 'Wyślij do analizy'."
             status_text.color = ft.Colors.CYAN_ACCENT
             page.update()
         except Exception as err_rot:
             status_text.value = f"Błąd obracania: {err_rot}"
+            status_text.color = ft.Colors.RED_ACCENT
             page.update()
+
+    async def klik_obroc_lewo(e):
+        await obroc_zdjecie(90)
+
+    async def klik_obroc_prawo(e):
+        await obroc_zdjecie(-90)
 
     btn_obroc_lewo = ft.Button(
         content=ft.Row([ft.Icon(ft.Icons.ROTATE_LEFT), ft.Text("Obróć w lewo")], alignment=ft.MainAxisAlignment.CENTER),
         expand=True,
-        on_click=lambda e: obroc_zdjecie(90)
+        on_click=klik_obroc_lewo
     )
 
     btn_obroc_prawo = ft.Button(
         content=ft.Row([ft.Icon(ft.Icons.ROTATE_RIGHT), ft.Text("Obróć w prawo")], alignment=ft.MainAxisAlignment.CENTER),
         expand=True,
-        on_click=lambda e: obroc_zdjecie(-90)
+        on_click=klik_obroc_prawo
     )
 
     wiersz_obrotu = ft.Row([btn_obroc_lewo, btn_obroc_prawo], visible=False, spacing=10)
@@ -559,11 +589,7 @@ async def main(page: ft.Page):
                     await serwis_udostepniania.share_files([sciezka])
                     return
 
-            if os.name == "nt":
-                os.system(f'explorer /select,"{os.path.abspath(sciezka)}"')
-                status_text.value = "Otwarto folder z plikiem EDI."
-            else:
-                status_text.value = f"Plik EDI zapisano w: {sciezka}"
+            status_text.value = f"Plik EDI zapisano w: {sciezka}"
             status_text.color = ft.Colors.CYAN_ACCENT
             page.update()
 
@@ -586,7 +612,6 @@ async def main(page: ft.Page):
             status_text.color = ft.Colors.ORANGE_ACCENT
             pasek_postepu.visible = True
             btn_foto.disabled = True
-            btn_aparat.disabled = True
             btn_ponow.visible = False
             btn_usun_zdjecie.visible = False
             btn_udostepnij.visible = False
@@ -736,6 +761,16 @@ async def main(page: ft.Page):
             btn_udostepnij.visible = True
             await udostepnij_plik(sciezka_edi)
 
+            # Reset stanu formularza po udanym przetworzeniu
+            aktualne_zdjecie["sciezka"] = None
+            podglad_obrazu.src = PUSTY_OBRAZ
+            podglad_obrazu.visible = False
+            btn_usun_zdjecie.visible = False
+            wiersz_obrotu.visible = False
+            btn_ponow.visible = False
+            ustaw_stan_przycisku_foto(False)
+            page.update()
+
         except Exception as err:
             komunikat = str(err)
             if "503" in komunikat:
@@ -752,10 +787,10 @@ async def main(page: ft.Page):
         finally:
             pasek_postepu.visible = False
             btn_foto.disabled = False
-            btn_aparat.disabled = False
-            btn_ponow.visible = True
-            btn_usun_zdjecie.visible = True
-            wiersz_obrotu.visible = True
+            czy_ma_foto = bool(aktualne_zdjecie["sciezka"])
+            btn_ponow.visible = czy_ma_foto
+            btn_usun_zdjecie.visible = czy_ma_foto
+            wiersz_obrotu.visible = czy_ma_foto
             page.update()
 
     picker = ft.FilePicker()
@@ -775,53 +810,6 @@ async def main(page: ft.Page):
             status_text.value = f"Błąd wyboru pliku: {e_pick}"
             page.update()
 
-    async def zrob_zdjecie_aparatem(e):
-        try:
-            # 1. Próba bezpośredniego wywołania aparatu systemowego Androida
-            nazwa_foto = f"foto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-            sciezka_foto = os.path.join(KATALOG_DANYCH, nazwa_foto)
-
-            uruchomiono_aparat = False
-            try:
-                from jnius import autoclass
-                Intent = autoclass('android.content.Intent')
-                MediaStore = autoclass('android.provider.MediaStore')
-                File = autoclass('java.io.File')
-                Uri = autoclass('android.net.Uri')
-                PythonActivity = autoclass('org.kivy.android.PythonActivity')
-
-                plik_docelowy = File(sciezka_foto)
-                intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(plik_docelowy))
-
-                aktywnosc = PythonActivity.mActivity
-                aktywnosc.startActivity(intent)
-                uruchomiono_aparat = True
-            except Exception:
-                uruchomiono_aparat = False
-
-            # Jeśli aplikacja wróciła i plik fizycznie powstał
-            if uruchomiono_aparat:
-                if os.path.exists(sciezka_foto):
-                    ustaw_nowy_obraz(sciezka_foto)
-                    return
-
-            # 2. Sprawdzenie, czy bieżąca wersja FilePicker ma metodę take_photo
-            if hasattr(picker, "take_photo"):
-                plik = await picker.take_photo()
-                if plik and getattr(plik, "path", None):
-                    ustaw_nowy_obraz(plik.path)
-                    return
-
-            status_text.value = "Aparat jest niedostępny bezpośrednio. Użyj przycisku galerii."
-            status_text.color = ft.Colors.AMBER_ACCENT
-            page.update()
-
-        except Exception as err_cam:
-            status_text.value = f"Błąd aparatu: {err_cam}"
-            status_text.color = ft.Colors.RED_ACCENT
-            page.update()
-
     async def klik_glowny_przycisk(e):
         if aktualne_zdjecie["sciezka"]:
             await przetworz_plik(aktualne_zdjecie["sciezka"])
@@ -829,7 +817,7 @@ async def main(page: ft.Page):
             await otworz_galerie()
 
     ikona_btn_foto = ft.Icon(ft.Icons.PHOTO_LIBRARY)
-    tekst_btn_foto = ft.Text("Wybierz zdjęcie z galerii")
+    tekst_btn_foto = ft.Text("Wybierz zdjęcie faktury")
 
     btn_foto = ft.Button(
         content=ft.Row(
@@ -844,26 +832,6 @@ async def main(page: ft.Page):
             shape=ft.RoundedRectangleBorder(radius=8)
         ),
         on_click=klik_glowny_przycisk
-    )
-
-    btn_aparat = ft.IconButton(
-        icon=ft.Icons.CAMERA_ALT,
-        tooltip="Zrób zdjęcie aparatem",
-        icon_size=28,
-        height=55,
-        width=55,
-        style=ft.ButtonStyle(
-            bgcolor=ft.Colors.TEAL_800,
-            color=ft.Colors.WHITE,
-            shape=ft.RoundedRectangleBorder(radius=8)
-        ),
-        on_click=zrob_zdjecie_aparatem
-    )
-
-    wiersz_wyboru_foto = ft.Row(
-        [btn_foto, btn_aparat],
-        alignment=ft.MainAxisAlignment.CENTER,
-        spacing=8
     )
 
     async def klik_ponow(e):
@@ -928,7 +896,7 @@ async def main(page: ft.Page):
             [
                 pasek_tytulu,
                 ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-                wiersz_wyboru_foto,
+                btn_foto,
                 pasek_postepu,
                 status_text,
                 btn_ponow,
