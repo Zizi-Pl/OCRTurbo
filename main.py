@@ -777,15 +777,46 @@ async def main(page: ft.Page):
 
     async def zrob_zdjecie_aparatem(e):
         try:
+            # 1. Próba bezpośredniego wywołania aparatu systemowego Androida
+            nazwa_foto = f"foto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            sciezka_foto = os.path.join(KATALOG_DANYCH, nazwa_foto)
+
+            uruchomiono_aparat = False
+            try:
+                from jnius import autoclass
+                Intent = autoclass('android.content.Intent')
+                MediaStore = autoclass('android.provider.MediaStore')
+                File = autoclass('java.io.File')
+                Uri = autoclass('android.net.Uri')
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+
+                plik_docelowy = File(sciezka_foto)
+                intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(plik_docelowy))
+
+                aktywnosc = PythonActivity.mActivity
+                aktywnosc.startActivity(intent)
+                uruchomiono_aparat = True
+            except Exception:
+                uruchomiono_aparat = False
+
+            # Jeśli aplikacja wróciła i plik fizycznie powstał
+            if uruchomiono_aparat:
+                if os.path.exists(sciezka_foto):
+                    ustaw_nowy_obraz(sciezka_foto)
+                    return
+
+            # 2. Sprawdzenie, czy bieżąca wersja FilePicker ma metodę take_photo
             if hasattr(picker, "take_photo"):
                 plik = await picker.take_photo()
                 if plik and getattr(plik, "path", None):
                     ustaw_nowy_obraz(plik.path)
                     return
-            
-            status_text.value = "Aparat bezpośredni niedostępny w tej konfiguracji silnika Flet. Użyj galerii."
+
+            status_text.value = "Aparat jest niedostępny bezpośrednio. Użyj przycisku galerii."
             status_text.color = ft.Colors.AMBER_ACCENT
             page.update()
+
         except Exception as err_cam:
             status_text.value = f"Błąd aparatu: {err_cam}"
             status_text.color = ft.Colors.RED_ACCENT
