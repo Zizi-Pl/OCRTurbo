@@ -7,6 +7,7 @@ import socket
 import asyncio
 import re
 import io
+import glob
 import httpx
 from datetime import datetime
 from PIL import Image, ImageEnhance, ImageFilter
@@ -263,6 +264,40 @@ async def main(page: ft.Page):
         tresc_bledu.value = str(wiadomosc)
         page.show_dialog(dlg_alert)
 
+    # Dialog potwierdzenia czyszczenia katalogu
+    def wykonaj_czyszczenie_katalogu(e):
+        page.pop_dialog()
+        usuniete_pliki = 0
+        wzorce = ["img_*.jpg", "foto_*.jpg", "edi_*.txt"]
+        for wzorzec in wzorce:
+            sciezka_wzorca = os.path.join(KATALOG_DANYCH, wzorzec)
+            for sciezka_pliku in glob.glob(sciezka_wzorca):
+                try:
+                    os.remove(sciezka_pliku)
+                    usuniete_pliki += 1
+                except Exception:
+                    pass
+
+        status_text.value = f"Wyczyszczono katalog roboczy (usunięto {usuniete_pliki} plików)."
+        status_text.color = ft.Colors.CYAN_ACCENT
+        page.update()
+
+    dlg_potwierdz_czyszczenie = ft.AlertDialog(
+        title=ft.Text("⚠️ Potwierdzenie usunięcia"),
+        content=ft.Text(
+            "Czy na pewno chcesz usunąć wszystkie wygenerowane pliki EDI oraz zdjęcia tymczasowe z katalogu aplikacji?\n\n"
+            "Baza towarowa i konfiguracja nie zostaną usunięte."
+        ),
+        actions=[
+            ft.Button(content=ft.Text("Anuluj"), on_click=zamknij_alert),
+            ft.Button(
+                content=ft.Text("Tak, wyczyść"),
+                style=ft.ButtonStyle(bgcolor=ft.Colors.RED_800, color=ft.Colors.WHITE),
+                on_click=wykonaj_czyszczenie_katalogu
+            )
+        ]
+    )
+
     chk_cloud = ft.Checkbox(
         label="Użyj chmury (Google Gemini)",
         value=konfig.get("use_cloud", True)
@@ -478,7 +513,6 @@ async def main(page: ft.Page):
             def wykonaj_obrot():
                 with Image.open(sciezka) as im:
                     obrocony = im.rotate(kat, expand=True)
-                    # Bezpieczna konwersja do RGB w razie obecności kanału przezroczystości (RGBA/P)
                     if obrocony.mode in ("RGBA", "P"):
                         obrocony = obrocony.convert("RGB")
                     obrocony.save(nowa_sciezka, format="JPEG", quality=95)
@@ -891,6 +925,52 @@ async def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN
     )
 
+    # --- Obsługa dolnych przycisków katalogu programu ---
+    async def klik_otworz_katalog(e):
+        try:
+            if os.name == "nt":
+                os.startfile(KATALOG_DANYCH)
+                status_text.value = f"Otwarto katalog w Eksploratorze."
+            else:
+                await page.set_clipboard(KATALOG_DANYCH)
+                status_text.value = f"Katalog: {KATALOG_DANYCH}\n(Skopiowano ścieżkę do schowka)"
+            status_text.color = ft.Colors.CYAN_ACCENT
+            page.update()
+        except Exception as err_kat:
+            status_text.value = f"Błąd otwierania katalogu: {err_kat}"
+            status_text.color = ft.Colors.RED_ACCENT
+            page.update()
+
+    def klik_wyczysc_katalog(e):
+        page.show_dialog(dlg_potwierdz_czyszczenie)
+
+    btn_otworz_katalog = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.FOLDER_SPECIAL, size=18), ft.Text("Otwórz katalog", size=12)], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.BLUE_GREY_900,
+            color=ft.Colors.BLUE_200,
+            shape=ft.RoundedRectangleBorder(radius=8)
+        ),
+        expand=True,
+        on_click=klik_otworz_katalog
+    )
+
+    btn_wyczysc_katalog = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.CLEANING_SERVICES, size=18), ft.Text("Wyczyść katalog", size=12)], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.RED_900,
+            color=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=8)
+        ),
+        expand=True,
+        on_click=klik_wyczysc_katalog
+    )
+
+    wiersz_zarzadzania_katalogiem = ft.Row(
+        [btn_otworz_katalog, btn_wyczysc_katalog],
+        spacing=10
+    )
+
     page.add(
         ft.Column(
             [
@@ -904,6 +984,8 @@ async def main(page: ft.Page):
                 podglad_obrazu,
                 wiersz_obrotu,
                 btn_usun_zdjecie,
+                ft.Divider(height=16, color=ft.Colors.GREY_800),
+                wiersz_zarzadzania_katalogiem
             ],
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             spacing=10
