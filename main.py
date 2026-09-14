@@ -777,23 +777,18 @@ async def main(page: ft.Page):
 
     async def zrob_zdjecie_aparatem(e):
         try:
-            kamera = getattr(ft, "Camera", None)
-            if kamera:
-                inst_kamery = kamera()
-                page.services.append(inst_kamery)
-                plik_foto = await inst_kamery.take_photo()
-                if plik_foto and getattr(plik_foto, "path", None):
-                    ustaw_nowy_obraz(plik_foto.path)
+            if hasattr(picker, "take_photo"):
+                plik = await picker.take_photo()
+                if plik and getattr(plik, "path", None):
+                    ustaw_nowy_obraz(plik.path)
                     return
-
-            pliki = await picker.pick_files(
-                allow_multiple=False,
-                file_type=ft.FilePickerFileType.IMAGE
-            )
-            if pliki and len(pliki) > 0 and pliki[0].path:
-                ustaw_nowy_obraz(pliki[0].path)
+            
+            status_text.value = "Aparat bezpośredni niedostępny w tej konfiguracji silnika Flet. Użyj galerii."
+            status_text.color = ft.Colors.AMBER_ACCENT
+            page.update()
         except Exception as err_cam:
             status_text.value = f"Błąd aparatu: {err_cam}"
+            status_text.color = ft.Colors.RED_ACCENT
             page.update()
 
     async def klik_glowny_przycisk(e):
