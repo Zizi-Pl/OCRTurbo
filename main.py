@@ -24,8 +24,7 @@ DOMYSLNA_KONFIGURACJA = {
     "use_db_matching": True,
     "baza_file_path": DOMYSLNA_BAZA_FILE,
     "gemini_api_key": "",
-    "gemini_model": "gemini-2.5-flash",
-    "gemini_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "gemini_model": "gemini-3.6-flash",
     "local_ip": "192.168.1.154",
     "local_port": "1234",
     "local_model": "qwen3-vl-4b-instruct",
@@ -281,41 +280,9 @@ async def main(page: ft.Page):
         dense=True
     )
 
-    znane_modele = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-    aktualny_model = konfig.get("gemini_model", "gemini-2.5-flash")
-
-    czy_niestandardowy = aktualny_model not in znane_modele
-    wybrana_wartosc_dd = "custom" if czy_niestandardowy else aktualny_model
-
-    txt_custom_model = ft.TextField(
-        label="Wpisz nazwę własnego modelu",
-        value=aktualny_model if czy_niestandardowy else "",
-        visible=czy_niestandardowy,
-        dense=True
-    )
-
-    dd_gemini_model = ft.Dropdown(
-        label="Model Gemini",
-        value=wybrana_wartosc_dd,
-        options=[
-            ft.dropdown.Option("gemini-2.5-flash", "Gemini 2.5 Flash"),
-            ft.dropdown.Option("gemini-3.6-flash", "Gemini 3.6 Flash"),
-            ft.dropdown.Option("gemini-2.0-flash", "Gemini 2.0 Flash"),
-            ft.dropdown.Option("gemini-1.5-flash", "Gemini 1.5 Flash"),
-            ft.dropdown.Option("custom", "Inny / własny model..."),
-        ],
-        dense=True
-    )
-
-    def zmien_model_dropdown(e):
-        txt_custom_model.visible = (dd_gemini_model.value == "custom")
-        page.update()
-
-    dd_gemini_model.on_change = zmien_model_dropdown
-
-    txt_gemini_url = ft.TextField(
-        label="Base URL Gemini",
-        value=konfig.get("gemini_base_url", "https://generativelanguage.googleapis.com/v1beta/openai"),
+    txt_gemini_model = ft.TextField(
+        label="Model Google AI (np. gemini-3.6-flash)",
+        value=konfig.get("gemini_model", "gemini-3.6-flash"),
         dense=True
     )
 
@@ -416,9 +383,7 @@ async def main(page: ft.Page):
         [
             ft.Text("Konfiguracja Google Gemini:", weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_300),
             txt_gemini_key,
-            dd_gemini_model,
-            txt_custom_model,
-            txt_gemini_url
+            txt_gemini_model
         ],
         spacing=8,
         visible=chk_cloud.value
@@ -446,7 +411,7 @@ async def main(page: ft.Page):
     chk_cloud.on_change = przelacz_profil
 
     status_text = ft.Text(
-        "Wybierz zdjęcie specyfikacji lub faktury.",
+        "Wybierz zdjęcie lub zrób zdjęcie aparatem.",
         size=13,
         color=ft.Colors.GREEN_ACCENT,
         text_align=ft.TextAlign.CENTER
@@ -461,8 +426,19 @@ async def main(page: ft.Page):
             btn_foto.style.bgcolor = ft.Colors.BLUE_700
         else:
             ikona_btn_foto.name = ft.Icons.PHOTO_LIBRARY
-            tekst_btn_foto.value = "Wybierz zdjęcie specyfikacji / faktury"
+            tekst_btn_foto.value = "Wybierz zdjęcie z galerii"
             btn_foto.style.bgcolor = ft.Colors.GREEN_800
+
+    def ustaw_nowy_obraz(sciezka: str):
+        aktualne_zdjecie["sciezka"] = sciezka
+        podglad_obrazu.src = sciezka
+        podglad_obrazu.visible = True
+        btn_usun_zdjecie.visible = True
+        wiersz_obrotu.visible = True
+        ustaw_stan_przycisku_foto(True)
+        status_text.value = "Zdjęcie załadowane. Sprawdź orientację i kliknij 'Wyślij do analizy'."
+        status_text.color = ft.Colors.CYAN_ACCENT
+        page.update()
 
     def usun_wybrane_zdjecie(e):
         aktualne_zdjecie["sciezka"] = None
@@ -522,13 +498,7 @@ async def main(page: ft.Page):
         konfig["use_cloud"] = chk_cloud.value
         konfig["use_db_matching"] = chk_db_matching.value
         konfig["gemini_api_key"] = txt_gemini_key.value.strip()
-        
-        if dd_gemini_model.value == "custom":
-            konfig["gemini_model"] = txt_custom_model.value.strip() or "gemini-2.5-flash"
-        else:
-            konfig["gemini_model"] = dd_gemini_model.value
-
-        konfig["gemini_base_url"] = txt_gemini_url.value.strip()
+        konfig["gemini_model"] = txt_gemini_model.value.strip() or "gemini-3.6-flash"
         konfig["wol_mac"] = txt_mac.value.strip()
         konfig["local_ip"] = txt_ip.value.strip()
         konfig["local_port"] = txt_port.value.strip()
@@ -609,12 +579,14 @@ async def main(page: ft.Page):
         try:
             uzywa_chmury = konfig.get("use_cloud", True)
             uzywa_bazy = konfig.get("use_db_matching", True)
-            nazwa_silnika = konfig.get("gemini_model", "gemini-2.5-flash") if uzywa_chmury else konfig.get("local_model", "LM Studio")
+            model_gemini = konfig.get("gemini_model", "gemini-3.6-flash").strip()
+            nazwa_silnika = model_gemini if uzywa_chmury else konfig.get("local_model", "LM Studio")
             
             status_text.value = f"Przetwarzanie dokumentu ({nazwa_silnika})..."
             status_text.color = ft.Colors.ORANGE_ACCENT
             pasek_postepu.visible = True
             btn_foto.disabled = True
+            btn_aparat.disabled = True
             btn_ponow.visible = False
             btn_usun_zdjecie.visible = False
             btn_udostepnij.visible = False
@@ -623,21 +595,6 @@ async def main(page: ft.Page):
 
             loop = asyncio.get_running_loop()
             base64_image = await loop.run_in_executor(None, kompresuj_do_base64, sciezka_obrazu)
-
-            if uzywa_chmury:
-                raw_url = konfig.get("gemini_base_url", "").strip().rstrip("/")
-                if raw_url.endswith("/chat/completions"):
-                    pelny_url = raw_url
-                else:
-                    pelny_url = f"{raw_url}/chat/completions"
-                klucz = konfig.get("gemini_api_key", "").strip()
-                wybrany_model = konfig.get("gemini_model", "gemini-2.5-flash").strip()
-            else:
-                ip = konfig.get("local_ip", "192.168.1.154").strip()
-                port = konfig.get("local_port", "1234").strip()
-                pelny_url = f"http://{ip}:{port}/v1/chat/completions"
-                klucz = konfig.get("local_api_key", "").strip()
-                wybrany_model = konfig.get("local_model", "qwen3-vl-4b-instruct").strip()
 
             prompt = (
                 "Jesteś precyzyjnym systemem OCR do faktur, specyfikacji mięsnych i dokumentów PZ. "
@@ -668,28 +625,51 @@ async def main(page: ft.Page):
                 "}"
             )
 
-            naglowki = {
-                "Content-Type": "application/json"
-            }
-
-            if klucz:
-                naglowki["Authorization"] = f"Bearer {klucz}"
-
-            cialo_zapytania = {
-                "model": wybrany_model,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                    ]
-                }],
-                "temperature": 0.0,
-                "max_tokens": 2500
-            }
-
             if uzywa_chmury:
-                cialo_zapytania["response_format"] = {"type": "json_object"}
+                klucz = konfig.get("gemini_api_key", "").strip()
+                pelny_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_gemini}:generateContent?key={klucz}"
+                naglowki = {"Content-Type": "application/json"}
+                cialo_zapytania = {
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": base64_image
+                                }
+                            }
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.0,
+                        "maxOutputTokens": 4096,
+                        "responseMimeType": "application/json"
+                    }
+                }
+            else:
+                ip = konfig.get("local_ip", "192.168.1.154").strip()
+                port = konfig.get("local_port", "1234").strip()
+                pelny_url = f"http://{ip}:{port}/v1/chat/completions"
+                klucz = konfig.get("local_api_key", "").strip()
+                wybrany_model = konfig.get("local_model", "qwen3-vl-4b-instruct").strip()
+
+                naglowki = {"Content-Type": "application/json"}
+                if klucz:
+                    naglowki["Authorization"] = f"Bearer {klucz}"
+
+                cialo_zapytania = {
+                    "model": wybrany_model,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]
+                    }],
+                    "temperature": 0.0,
+                    "max_tokens": 2500
+                }
 
             max_prob = 4
             opoznienie_poczatkowe = 2.0
@@ -716,7 +696,10 @@ async def main(page: ft.Page):
                     break
 
                 dane_odp = odpowiedz.json()
-                odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
+                if uzywa_chmury:
+                    odp_tekst = dane_odp["candidates"][0]["content"]["parts"][0]["text"].strip()
+                else:
+                    odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
 
             dopasowanie = re.search(r'\{.*\}', odp_tekst, re.DOTALL)
             if not dopasowanie:
@@ -759,7 +742,7 @@ async def main(page: ft.Page):
                 pokaz_okno_bledu("⏳ Serwer Gemini przeciążony", "Odczekaj chwilę i kliknij przycisk odświeżenia/analizy ponownie.")
             elif "429" in komunikat:
                 pokaz_okno_bledu("⏳ Limit zapytań wyczerpany", "Zbyt wiele zapytań w krótkim czasie. Odczekaj 30 sekund.")
-            elif "401" in komunikat:
+            elif "401" in komunikat or "API_KEY_INVALID" in komunikat:
                 pokaz_okno_bledu("🔑 Błąd autoryzacji", "Sprawdź poprawność klucza API w ustawieniach (zębatka).")
             else:
                 pokaz_okno_bledu("❌ Błąd przetwarzania", komunikat)
@@ -769,6 +752,7 @@ async def main(page: ft.Page):
         finally:
             pasek_postepu.visible = False
             btn_foto.disabled = False
+            btn_aparat.disabled = False
             btn_ponow.visible = True
             btn_usun_zdjecie.visible = True
             wiersz_obrotu.visible = True
@@ -777,33 +761,49 @@ async def main(page: ft.Page):
     picker = ft.FilePicker()
     page.services.append(picker)
 
+    async def otworz_galerie():
+        try:
+            pliki = await picker.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.IMAGE
+            )
+            if pliki and len(pliki) > 0:
+                wybrany = pliki[0].path
+                if wybrany:
+                    ustaw_nowy_obraz(wybrany)
+        except Exception as e_pick:
+            status_text.value = f"Błąd wyboru pliku: {e_pick}"
+            page.update()
+
+    async def zrob_zdjecie_aparatem(e):
+        try:
+            kamera = getattr(ft, "Camera", None)
+            if kamera:
+                inst_kamery = kamera()
+                page.services.append(inst_kamery)
+                plik_foto = await inst_kamery.take_photo()
+                if plik_foto and getattr(plik_foto, "path", None):
+                    ustaw_nowy_obraz(plik_foto.path)
+                    return
+
+            pliki = await picker.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.IMAGE
+            )
+            if pliki and len(pliki) > 0 and pliki[0].path:
+                ustaw_nowy_obraz(pliki[0].path)
+        except Exception as err_cam:
+            status_text.value = f"Błąd aparatu: {err_cam}"
+            page.update()
+
     async def klik_glowny_przycisk(e):
         if aktualne_zdjecie["sciezka"]:
             await przetworz_plik(aktualne_zdjecie["sciezka"])
         else:
-            try:
-                pliki = await picker.pick_files(
-                    allow_multiple=False,
-                    file_type=ft.FilePickerFileType.IMAGE
-                )
-                if pliki and len(pliki) > 0:
-                    wybrany = pliki[0].path
-                    if wybrany:
-                        aktualne_zdjecie["sciezka"] = wybrany
-                        podglad_obrazu.src = wybrany
-                        podglad_obrazu.visible = True
-                        btn_usun_zdjecie.visible = True
-                        wiersz_obrotu.visible = True
-                        ustaw_stan_przycisku_foto(True)
-                        status_text.value = "Zdjęcie załadowane. Sprawdź orientację i kliknij 'Wyślij do analizy'."
-                        status_text.color = ft.Colors.CYAN_ACCENT
-                        page.update()
-            except Exception as e_pick:
-                status_text.value = f"Błąd wyboru pliku: {e_pick}"
-                page.update()
+            await otworz_galerie()
 
     ikona_btn_foto = ft.Icon(ft.Icons.PHOTO_LIBRARY)
-    tekst_btn_foto = ft.Text("Wybierz zdjęcie specyfikacji / faktury")
+    tekst_btn_foto = ft.Text("Wybierz zdjęcie z galerii")
 
     btn_foto = ft.Button(
         content=ft.Row(
@@ -811,12 +811,33 @@ async def main(page: ft.Page):
             alignment=ft.MainAxisAlignment.CENTER
         ),
         height=55,
+        expand=True,
         style=ft.ButtonStyle(
             bgcolor=ft.Colors.GREEN_800,
             color=ft.Colors.WHITE,
             shape=ft.RoundedRectangleBorder(radius=8)
         ),
         on_click=klik_glowny_przycisk
+    )
+
+    btn_aparat = ft.IconButton(
+        icon=ft.Icons.CAMERA_ALT,
+        tooltip="Zrób zdjęcie aparatem",
+        icon_size=28,
+        height=55,
+        width=55,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.TEAL_800,
+            color=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=8)
+        ),
+        on_click=zrob_zdjecie_aparatem
+    )
+
+    wiersz_wyboru_foto = ft.Row(
+        [btn_foto, btn_aparat],
+        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=8
     )
 
     async def klik_ponow(e):
@@ -881,7 +902,7 @@ async def main(page: ft.Page):
             [
                 pasek_tytulu,
                 ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-                btn_foto,
+                wiersz_wyboru_foto,
                 pasek_postepu,
                 status_text,
                 btn_ponow,
