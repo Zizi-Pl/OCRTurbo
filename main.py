@@ -25,7 +25,7 @@ DOMYSLNA_KONFIGURACJA = {
     "use_db_matching": True,
     "baza_file_path": DOMYSLNA_BAZA_FILE,
     "gemini_api_key": "",
-    "gemini_model": "gemini-1.5-flash",
+    "gemini_model": "gemini-2.5-flash",
     "local_ip": "192.168.1.154",
     "local_port": "1234",
     "local_model": "qwen3-vl-4b-instruct",
@@ -176,10 +176,9 @@ def generuj_tekst_edi(dane: dict, uzywaj_bazy: bool, sciezka_bazy: str = None) -
         if not wartosc.startswith("n"):
             wartosc = f"n{wartosc}"
 
-        # Dodano KodKreskowy{{{kod_dodatkowy}}}, aby kod z faktury (np. EAN) trafiał do pliku
         linia = (
-            f"Linia:Nazwa{{{nazwa}}}Kod{{{kod_glowny}}}KodKreskowy{{{kod_dodatkowy}}}"
-            f"Vat{{{vat}}}Jm{{{jm}}}Ilosc{{{ilosc}}}Cena{{{cena}}}Wartosc{{{wartosc}}}"
+            f"Linia:Nazwa{{{nazwa}}}Kod{{{kod_glowny}}}Vat{{{vat}}}Jm{{{jm}}}"
+            f"Ilosc{{{ilosc}}}Cena{{{cena}}}Wartosc{{{wartosc}}}"
         )
         linie.append(linia)
 
@@ -265,11 +264,10 @@ async def main(page: ft.Page):
         tresc_bledu.value = str(wiadomosc)
         page.show_dialog(dlg_alert)
 
-    # Dialog potwierdzenia czyszczenia katalogu
     def wykonaj_czyszczenie_katalogu(e):
         page.pop_dialog()
         usuniete_pliki = 0
-        wzorce = ["img_*.jpg", "foto_*.jpg", "edi_*.txt"]
+        wzorce = ["img_*.jpg", "foto_*.jpg", "edi_*.txt", "debug_odp_*.txt"]
         for wzorzec in wzorce:
             sciezka_wzorca = os.path.join(KATALOG_DANYCH, wzorzec)
             for sciezka_pliku in glob.glob(sciezka_wzorca):
@@ -318,8 +316,8 @@ async def main(page: ft.Page):
     )
 
     txt_gemini_model = ft.TextField(
-        label="Model Google AI (np. gemini-1.5-flash)",
-        value=konfig.get("gemini_model", "gemini-1.5-flash"),
+        label="Model Google AI (np. gemini-2.5-flash)",
+        value=konfig.get("gemini_model", "gemini-2.5-flash"),
         dense=True
     )
 
@@ -563,7 +561,7 @@ async def main(page: ft.Page):
         konfig["use_cloud"] = chk_cloud.value
         konfig["use_db_matching"] = chk_db_matching.value
         konfig["gemini_api_key"] = txt_gemini_key.value.strip()
-        konfig["gemini_model"] = txt_gemini_model.value.strip() or "gemini-1.5-flash"
+        konfig["gemini_model"] = txt_gemini_model.value.strip() or "gemini-2.5-flash"
         konfig["wol_mac"] = txt_mac.value.strip()
         konfig["local_ip"] = txt_ip.value.strip()
         konfig["local_port"] = txt_port.value.strip()
@@ -640,7 +638,7 @@ async def main(page: ft.Page):
         try:
             uzywa_chmury = konfig.get("use_cloud", True)
             uzywa_bazy = konfig.get("use_db_matching", True)
-            model_gemini = konfig.get("gemini_model", "gemini-1.5-flash").strip()
+            model_gemini = konfig.get("gemini_model", "gemini-2.5-flash").strip()
             nazwa_silnika = model_gemini if uzywa_chmury else konfig.get("local_model", "LM Studio")
             
             status_text.value = f"Przetwarzanie dokumentu ({nazwa_silnika})..."
@@ -687,7 +685,6 @@ async def main(page: ft.Page):
 
             if uzywa_chmury:
                 klucz = konfig.get("gemini_api_key", "").strip()
-                # Zmieniono na kompatybilny endpoint OpenAI, identycznie jak w ocrlmm.py
                 pelny_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 naglowki = {
                     "Content-Type": "application/json",
@@ -695,6 +692,7 @@ async def main(page: ft.Page):
                 }
                 cialo_zapytania = {
                     "model": model_gemini,
+                    "response_format": {"type": "json_object"},
                     "messages": [{
                         "role": "user",
                         "content": [
@@ -703,7 +701,7 @@ async def main(page: ft.Page):
                         ]
                     }],
                     "temperature": 0.0,
-                    "max_tokens": 4096
+                    "max_tokens": 8192
                 }
             else:
                 ip = konfig.get("local_ip", "192.168.1.154").strip()
@@ -754,21 +752,37 @@ async def main(page: ft.Page):
                     break
 
                 dane_odp = odpowiedz.json()
-                
-                # Niezależnie od tego czy używamy chmury czy LM Studio, 
-                # obie metody korzystają teraz ze standardu OpenAI:
                 odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
 
-            dopasowanie = re.search(r'\{.*\}', odp_tekst, re.DOTALL)
-            if not dopasowanie:
-                raise ValueError("Model AI nie zwrócił formatu JSON.")
-
-            czysty_json = dopasowanie.group(0)
+            dane = None
+            blad_parsowania = ""
 
             try:
-                dane = json.loads(czysty_json)
+                dane = json.loads(odp_tekst)
             except json.JSONDecodeError:
-                raise ValueError("Błąd parsowania odpowiedzi JSON. AI zwróciło zepsutą strukturę.")
+                dopasowanie = re.search(r'\{.*\}', odp_tekst, re.DOTALL)
+                if dopasowanie:
+                    try:
+                        dane = json.loads(dopasowanie.group(0))
+                    except json.JSONDecodeError as err:
+                        blad_parsowania = str(err)
+                else:
+                    blad_parsowania = "Brak klamrowej struktury JSON w odpowiedzi."
+
+            if dane is None:
+                debug_path = os.path.join(KATALOG_DANYCH, f"debug_odp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+                try:
+                    with open(debug_path, "w", encoding="utf-8") as f_debug:
+                        f_debug.write(odp_tekst)
+                except Exception:
+                    pass
+                
+                podglad = odp_tekst[:140] + "\n[...]\n" + odp_tekst[-80:] if len(odp_tekst) > 220 else odp_tekst
+                raise ValueError(
+                    f"Błąd parsowania JSON ({blad_parsowania}).\n"
+                    f"Zapisano debug: {os.path.basename(debug_path)}\n\n"
+                    f"Treść:\n{podglad}"
+                )
 
             zgodne_sumy, info_sumy = weryfikuj_sumy_netto(dane)
             aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(konfig)
@@ -794,7 +808,7 @@ async def main(page: ft.Page):
             btn_udostepnij.visible = True
             await udostepnij_plik(sciezka_edi)
 
-            # Reset stanu formularza po udanym przetworzeniu
+            # Reset stanu po udanym eksporcie
             aktualne_zdjecie["sciezka"] = None
             podglad_obrazu.src = PUSTY_OBRAZ
             podglad_obrazu.visible = False
@@ -924,34 +938,34 @@ async def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN
     )
 
-    # --- Obsługa dolnych przycisków katalogu programu ---
-    async def klik_otworz_katalog(e):
+    # --- Zarządzanie katalogiem roboczym ---
+    def klik_kopiuj_sciezke(e):
         try:
             if os.name == "nt":
                 os.startfile(KATALOG_DANYCH)
-                status_text.value = f"Otwarto katalog w Eksploratorze."
+                status_text.value = "Otwarto katalog w Eksploratorze."
             else:
                 ft.Clipboard().set(KATALOG_DANYCH)
-                status_text.value = f"Katalog: {KATALOG_DANYCH}\n(Skopiowano ścieżkę do schowka)"
+                status_text.value = f"Skopiowano ścieżkę do schowka:\n{KATALOG_DANYCH}"
             status_text.color = ft.Colors.CYAN_ACCENT
             page.update()
         except Exception as err_kat:
-            status_text.value = f"Błąd otwierania katalogu: {err_kat}"
+            status_text.value = f"Błąd schowka/katalogu: {err_kat}"
             status_text.color = ft.Colors.RED_ACCENT
             page.update()
 
     def klik_wyczysc_katalog(e):
         page.show_dialog(dlg_potwierdz_czyszczenie)
 
-    btn_otworz_katalog = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.FOLDER_SPECIAL, size=18), ft.Text("Otwórz katalog", size=12)], alignment=ft.MainAxisAlignment.CENTER),
+    btn_kopiuj_katalog = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.COPY, size=18), ft.Text("Skopiuj ścieżkę", size=12)], alignment=ft.MainAxisAlignment.CENTER),
         style=ft.ButtonStyle(
             bgcolor=ft.Colors.BLUE_GREY_900,
             color=ft.Colors.BLUE_200,
             shape=ft.RoundedRectangleBorder(radius=8)
         ),
         expand=True,
-        on_click=klik_otworz_katalog
+        on_click=klik_kopiuj_sciezke
     )
 
     btn_wyczysc_katalog = ft.Button(
@@ -966,7 +980,7 @@ async def main(page: ft.Page):
     )
 
     wiersz_zarzadzania_katalogiem = ft.Row(
-        [btn_otworz_katalog, btn_wyczysc_katalog],
+        [btn_kopiuj_katalog, btn_wyczysc_katalog],
         spacing=10
     )
 
