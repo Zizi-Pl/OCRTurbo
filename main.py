@@ -669,7 +669,7 @@ async def main(page: ft.Page):
                 "   - wartosc_netto: wartość netto pozycji\n"
                 "   - vat: stawka VAT (np. 5 lub 23)\n"
                 "3. Podsumowanie: odczytaj 'Razem netto' (suma_netto_dokument) oraz stawki VAT i do_zaplaty.\n\n"
-                "Zwróć TYLKO czysty obiekt JSON zgodny ze strukturą:\n"
+                "Zwróć TYLKO poprawny obiekt JSON (może być otoczony w bloku markdown ```json ... ```) zgodny ze strukturą:\n"
                 "{\n"
                 "  \"nr_dok\": \"...\",\n"
                 "  \"data\": \"DD.MM.RRRR\",\n"
@@ -702,8 +702,7 @@ async def main(page: ft.Page):
                     }],
                     "generationConfig": {
                         "temperature": 0.0,
-                        "maxOutputTokens": 4096,
-                        "responseMimeType": "application/json"
+                        "maxOutputTokens": 4096
                     }
                 }
             else:
@@ -760,6 +759,7 @@ async def main(page: ft.Page):
                 else:
                     odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
 
+            # Bezpieczne wyłuskiwanie struktury JSON (odporne na formatowanie markdown przez AI)
             dopasowanie = re.search(r'\{.*\}', odp_tekst, re.DOTALL)
             if not dopasowanie:
                 raise ValueError("Model AI nie zwrócił formatu JSON.")
