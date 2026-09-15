@@ -176,9 +176,10 @@ def generuj_tekst_edi(dane: dict, uzywaj_bazy: bool, sciezka_bazy: str = None) -
         if not wartosc.startswith("n"):
             wartosc = f"n{wartosc}"
 
+        # Dodano KodKreskowy{{{kod_dodatkowy}}}, aby kod z faktury (np. EAN) trafiał do pliku
         linia = (
-            f"Linia:Nazwa{{{nazwa}}}Kod{{{kod_glowny}}}Vat{{{vat}}}Jm{{{jm}}}"
-            f"Ilosc{{{ilosc}}}Cena{{{cena}}}Wartosc{{{wartosc}}}"
+            f"Linia:Nazwa{{{nazwa}}}Kod{{{kod_glowny}}}KodKreskowy{{{kod_dodatkowy}}}"
+            f"Vat{{{vat}}}Jm{{{jm}}}Ilosc{{{ilosc}}}Cena{{{cena}}}Wartosc{{{wartosc}}}"
         )
         linie.append(linia)
 
