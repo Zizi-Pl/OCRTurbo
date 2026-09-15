@@ -932,7 +932,7 @@ async def main(page: ft.Page):
                 os.startfile(KATALOG_DANYCH)
                 status_text.value = f"Otwarto katalog w Eksploratorze."
             else:
-                await page.set_clipboard(KATALOG_DANYCH)
+                ft.Clipboard().set(KATALOG_DANYCH)
                 status_text.value = f"Katalog: {KATALOG_DANYCH}\n(Skopiowano ścieżkę do schowka)"
             status_text.color = ft.Colors.CYAN_ACCENT
             page.update()
