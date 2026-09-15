@@ -25,7 +25,7 @@ DOMYSLNA_KONFIGURACJA = {
     "use_db_matching": True,
     "baza_file_path": DOMYSLNA_BAZA_FILE,
     "gemini_api_key": "",
-    "gemini_model": "gemini-3.6-flash",
+    "gemini_model": "gemini-1.5-flash",
     "local_ip": "192.168.1.154",
     "local_port": "1234",
     "local_model": "qwen3-vl-4b-instruct",
@@ -317,8 +317,8 @@ async def main(page: ft.Page):
     )
 
     txt_gemini_model = ft.TextField(
-        label="Model Google AI (np. gemini-3.6-flash)",
-        value=konfig.get("gemini_model", "gemini-3.6-flash"),
+        label="Model Google AI (np. gemini-1.5-flash)",
+        value=konfig.get("gemini_model", "gemini-1.5-flash"),
         dense=True
     )
 
@@ -562,7 +562,7 @@ async def main(page: ft.Page):
         konfig["use_cloud"] = chk_cloud.value
         konfig["use_db_matching"] = chk_db_matching.value
         konfig["gemini_api_key"] = txt_gemini_key.value.strip()
-        konfig["gemini_model"] = txt_gemini_model.value.strip() or "gemini-3.6-flash"
+        konfig["gemini_model"] = txt_gemini_model.value.strip() or "gemini-1.5-flash"
         konfig["wol_mac"] = txt_mac.value.strip()
         konfig["local_ip"] = txt_ip.value.strip()
         konfig["local_port"] = txt_port.value.strip()
@@ -639,7 +639,7 @@ async def main(page: ft.Page):
         try:
             uzywa_chmury = konfig.get("use_cloud", True)
             uzywa_bazy = konfig.get("use_db_matching", True)
-            model_gemini = konfig.get("gemini_model", "gemini-3.6-flash").strip()
+            model_gemini = konfig.get("gemini_model", "gemini-1.5-flash").strip()
             nazwa_silnika = model_gemini if uzywa_chmury else konfig.get("local_model", "LM Studio")
             
             status_text.value = f"Przetwarzanie dokumentu ({nazwa_silnika})..."
@@ -669,7 +669,7 @@ async def main(page: ft.Page):
                 "   - wartosc_netto: wartość netto pozycji\n"
                 "   - vat: stawka VAT (np. 5 lub 23)\n"
                 "3. Podsumowanie: odczytaj 'Razem netto' (suma_netto_dokument) oraz stawki VAT i do_zaplaty.\n\n"
-                "Zwróć TYLKO poprawny obiekt JSON (może być otoczony w bloku markdown ```json ... ```) zgodny ze strukturą:\n"
+                "Zwróć TYLKO i WYŁĄCZNIE czysty obiekt JSON zgodny ze strukturą (bez żadnych dodatkowych znaczników, bez markdownu):\n"
                 "{\n"
                 "  \"nr_dok\": \"...\",\n"
                 "  \"data\": \"DD.MM.RRRR\",\n"
@@ -686,24 +686,23 @@ async def main(page: ft.Page):
 
             if uzywa_chmury:
                 klucz = konfig.get("gemini_api_key", "").strip()
-                pelny_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_gemini}:generateContent?key={klucz}"
-                naglowki = {"Content-Type": "application/json"}
+                # Zmieniono na kompatybilny endpoint OpenAI, identycznie jak w ocrlmm.py
+                pelny_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                naglowki = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {klucz}"
+                }
                 cialo_zapytania = {
-                    "contents": [{
-                        "parts": [
-                            {"text": prompt},
-                            {
-                                "inline_data": {
-                                    "mime_type": "image/jpeg",
-                                    "data": base64_image
-                                }
-                            }
+                    "model": model_gemini,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                         ]
                     }],
-                    "generationConfig": {
-                        "temperature": 0.0,
-                        "maxOutputTokens": 4096
-                    }
+                    "temperature": 0.0,
+                    "max_tokens": 4096
                 }
             else:
                 ip = konfig.get("local_ip", "192.168.1.154").strip()
@@ -754,12 +753,11 @@ async def main(page: ft.Page):
                     break
 
                 dane_odp = odpowiedz.json()
-                if uzywa_chmury:
-                    odp_tekst = dane_odp["candidates"][0]["content"]["parts"][0]["text"].strip()
-                else:
-                    odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
+                
+                # Niezależnie od tego czy używamy chmury czy LM Studio, 
+                # obie metody korzystają teraz ze standardu OpenAI:
+                odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
 
-            # Bezpieczne wyłuskiwanie struktury JSON (odporne na formatowanie markdown przez AI)
             dopasowanie = re.search(r'\{.*\}', odp_tekst, re.DOTALL)
             if not dopasowanie:
                 raise ValueError("Model AI nie zwrócił formatu JSON.")
@@ -769,7 +767,7 @@ async def main(page: ft.Page):
             try:
                 dane = json.loads(czysty_json)
             except json.JSONDecodeError:
-                raise ValueError("Błąd parsowania odpowiedzi JSON.")
+                raise ValueError("Błąd parsowania odpowiedzi JSON. AI zwróciło zepsutą strukturę.")
 
             zgodne_sumy, info_sumy = weryfikuj_sumy_netto(dane)
             aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(konfig)
