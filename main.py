@@ -10,7 +10,7 @@ import io
 import glob
 import httpx
 from datetime import datetime
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from thefuzz import process, fuzz
 
 KATALOG_DANYCH = os.getenv("FLET_APP_STORAGE_DATA", os.getcwd())
@@ -18,6 +18,7 @@ os.makedirs(KATALOG_DANYCH, exist_ok=True)
 
 CONFIG_FILE = os.path.join(KATALOG_DANYCH, "ocrlmm_mobile_config.json")
 DOMYSLNA_BAZA_FILE = os.path.join(KATALOG_DANYCH, "WĘDLINA.txt")
+MAPA_FILE = os.path.join(KATALOG_DANYCH, "mapowania_towarow.json")
 
 DOMYSLNA_KONFIGURACJA = {
     "wol_mac": "2C:F0:5D:E4:8E:85",
@@ -34,6 +35,24 @@ DOMYSLNA_KONFIGURACJA = {
 
 PUSTY_OBRAZ = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 
+# --- ZARZĄDZANIE MAPOWANIAMI (WŁASNE KODY) ---
+def wczytaj_baze_mapowan() -> dict:
+    if os.path.exists(MAPA_FILE):
+        try:
+            with open(MAPA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def zapisz_baze_mapowan(mapa: dict):
+    try:
+        with open(MAPA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mapa, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Błąd zapisu mapowań: {e}")
+
+# --- ORYGINALNE FUNKCJE ---
 def wczytaj_konfiguracje() -> dict:
     if os.path.exists(CONFIG_FILE):
         try:
@@ -65,7 +84,7 @@ def pobierz_aktualna_sciezke_bazy(konf: dict) -> str:
     return sciezka
 
 def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
-    towary = []
+    towary_dict = {}
     if not sciezka:
         konf = wczytaj_konfiguracje()
         sciezka = pobierz_aktualna_sciezke_bazy(konf)
@@ -82,43 +101,62 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
             except UnicodeDecodeError:
                 continue
                 
-        if not linie:
-            return towary
+        if linie:
+            try:
+                for linia in linie:
+                    kolumny = linia.strip().split("\t")
+                    if len(kolumny) >= 3:
+                        nazwa = kolumny[0].strip().upper()
+                        kod = kolumny[2].strip().lstrip("'")
+                        if nazwa and kod and nazwa != "NAZWA":
+                            towary_dict[nazwa] = kod
+            except Exception as e:
+                print(f"Błąd parsowania bazy PC-Market: {e}")
 
-        try:
-            for linia in linie:
-                kolumny = linia.strip().split("\t")
-                if len(kolumny) >= 3:
-                    nazwa = kolumny[0].strip().upper()
-                    kod = kolumny[2].strip().lstrip("'")
-                    if nazwa and kod and nazwa != "NAZWA":
-                        towary.append({
-                            "nazwa": nazwa,
-                            "kod_wew": kod
-                        })
-        except Exception as e:
-            print(f"Błąd parsowania bazy PC-Market: {e}")
-    return towary
+    # Doklejenie ręcznych mapowań (mają priorytet)
+    mapa_reczna = wczytaj_baze_mapowan()
+    towary_dict.update(mapa_reczna)
+
+    return [{"nazwa": k, "kod_wew": v} for k, v in towary_dict.items()]
+
+def normalizuj_nazwe(tekst: str) -> str:
+    t = tekst.upper().strip()
+    t = re.sub(r"[.,/\\-_]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
 
 def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict], uzywaj_bazy: bool) -> tuple[str, str]:
     kod_faktura_clean = kod_faktura.strip()
-    nazwa_faktura_clean = nazwa_faktura.strip().upper()
+    nazwa_faktura_clean = normalizuj_nazwe(nazwa_faktura)
 
-    if not uzywaj_bazy:
+    if not uzywaj_bazy or not baza:
         return kod_faktura_clean, ""
 
-    if baza and nazwa_faktura_clean:
-        mapa_nazw = {t["nazwa"]: t["kod_wew"] for t in baza}
-        if nazwa_faktura_clean in mapa_nazw:
-            return mapa_nazw[nazwa_faktura_clean], kod_faktura_clean
+    mapa_nazw = {normalizuj_nazwe(t["nazwa"]): t["kod_wew"] for t in baza}
 
-        najlepsza_nazwa, wynik = process.extractOne(
-            nazwa_faktura_clean, 
-            mapa_nazw.keys(), 
-            scorer=fuzz.token_set_ratio
-        )
-        if wynik >= 65:
-            return mapa_nazw[najlepsza_nazwa], kod_faktura_clean
+    # 1. Dokładne trafienie 1:1
+    if nazwa_faktura_clean in mapa_nazw:
+        return mapa_nazw[nazwa_faktura_clean], kod_faktura_clean
+
+    # 2. Specjalna heurystyka liczby pojedynczej/mnogiej (np. BANAN vs BANANY)
+    for wzorzec, kod in mapa_nazw.items():
+        slowa_wzorce = wzorzec.split()
+        slowa_faktura = nazwa_faktura_clean.split()
+        for sf in slowa_faktura:
+            if len(sf) >= 4:
+                rdzen = sf.rstrip("Y").rstrip("I").rstrip("E")
+                for sw in slowa_wzorce:
+                    if sw.startswith(rdzen) and len(rdzen) >= 4:
+                        if fuzz.token_set_ratio(nazwa_faktura_clean, wzorzec) >= 55:
+                            return kod, kod_faktura_clean
+
+    # 3. Klasyczny Fuzz
+    najlepsza_nazwa, wynik = process.extractOne(
+        nazwa_faktura_clean, 
+        mapa_nazw.keys(), 
+        scorer=fuzz.token_set_ratio
+    )
+    if wynik >= 65:
+        return mapa_nazw[najlepsza_nazwa], kod_faktura_clean
 
     return kod_faktura_clean, ""
 
@@ -297,6 +335,104 @@ async def main(page: ft.Page):
         ]
     )
 
+    # --- OKNO ZARZĄDZANIA WŁASNYMI KODAMI ---
+    txt_nowy_wzorzec = ft.TextField(label="Nazwa z faktury (np. BANAN)", dense=True, expand=True)
+    txt_nowy_kod = ft.TextField(label="Kod PC-Market", dense=True, width=130)
+    lista_mapowan_view = ft.ListView(expand=True, spacing=6, height=220)
+
+    def odswiez_widok_mapowan(filtr: str = ""):
+        lista_mapowan_view.controls.clear()
+        filtr_upper = filtr.upper().strip()
+        mapa = wczytaj_baze_mapowan()
+
+        for wzorzec, kod in sorted(mapa.items()):
+            if filtr_upper and filtr_upper not in wzorzec and filtr_upper not in kod:
+                continue
+
+            def stworz_callback_usun(wz=wzorzec):
+                def usun_klik(e):
+                    m = wczytaj_baze_mapowan()
+                    if wz in m:
+                        del m[wz]
+                        zapisz_baze_mapowan(m)
+                        odswiez_widok_mapowan(txt_filtr_bazy.value)
+                        odswiez_status_bazy()
+                return usun_klik
+
+            lista_mapowan_view.controls.append(
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Column([
+                                ft.Text(wzorzec, weight=ft.FontWeight.BOLD, size=13),
+                                ft.Text(f"Kod: {kod}", size=11, color=ft.Colors.GREEN_400)
+                            ], expand=True),
+                            ft.IconButton(
+                                icon=ft.Icons.DELETE_OUTLINE, 
+                                icon_color=ft.Colors.RED_400, 
+                                on_click=stworz_callback_usun(wzorzec)
+                            )
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                    ),
+                    padding=8,
+                    bgcolor=ft.Colors.GREY_900,
+                    border_radius=6
+                )
+            )
+        page.update()
+
+    def dodaj_nowe_mapowanie(e):
+        wz = txt_nowy_wzorzec.value.strip().upper()
+        kd = txt_nowy_kod.value.strip()
+        if not wz or not kd:
+            pokaz_okno_bledu("Błąd", "Podaj nazwę wzorca oraz kod PC-Market.")
+            return
+
+        mapa = wczytaj_baze_mapowan()
+        mapa[wz] = kd
+        zapisz_baze_mapowan(mapa)
+
+        txt_nowy_wzorzec.value = ""
+        txt_nowy_kod.value = ""
+        odswiez_widok_mapowan(txt_filtr_bazy.value)
+        odswiez_status_bazy()
+        status_text.value = f"Dodano powiązanie: {wz} -> {kd}"
+        status_text.color = ft.Colors.GREEN_ACCENT
+        page.update()
+
+    txt_filtr_bazy = ft.TextField(
+        label="🔍 Filtruj zapisane reguły...",
+        dense=True,
+        on_change=lambda e: odswiez_widok_mapowan(txt_filtr_bazy.value)
+    )
+
+    dlg_baza_edycja = ft.AlertDialog(
+        title=ft.Text("📦 Baza i Edycja Powiązań"),
+        content=ft.Column(
+            [
+                ft.Text("Dodaj wzorzec towaru (np. BANAN -> 4001):", size=12, color=ft.Colors.GREY_400),
+                ft.Row([txt_nowy_wzorzec, txt_nowy_kod]),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.ADD), ft.Text("Zapisz powiązanie")], alignment=ft.MainAxisAlignment.CENTER),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE),
+                    on_click=dodaj_nowe_mapowanie
+                ),
+                ft.Divider(),
+                txt_filtr_bazy,
+                lista_mapowan_view
+            ],
+            tight=True,
+            width=360,
+            spacing=10
+        ),
+        actions=[ft.Button(content=ft.Text("Zamknij"), on_click=zamknij_alert)]
+    )
+
+    def otworz_okno_bazy_recznej(e):
+        odswiez_widok_mapowan()
+        page.show_dialog(dlg_baza_edycja)
+
     chk_cloud = ft.Checkbox(
         label="Użyj chmury (Google Gemini)",
         value=konfig.get("use_cloud", True)
@@ -354,16 +490,16 @@ async def main(page: ft.Page):
         on_click=klik_budzenie_wol
     )
 
-    sciezka_biezaca_bazy = pobierz_aktualna_sciezke_bazy(konfig)
-    baza_towarowa_cache = wczytaj_baze_pcmarket(sciezka_biezaca_bazy)
-    liczba_towarow = len(baza_towarowa_cache)
-    nazwa_bazy_wyswietlana = os.path.basename(sciezka_biezaca_bazy)
+    lbl_status_bazy = ft.Text("", size=12)
 
-    lbl_status_bazy = ft.Text(
-        f"Załadowano {liczba_towarow} poz. z: {nazwa_bazy_wyswietlana}" if liczba_towarow > 0 else f"Brak towarów w pliku: {nazwa_bazy_wyswietlana}",
-        size=12,
-        color=ft.Colors.GREEN_300 if liczba_towarow > 0 else ft.Colors.ORANGE_300
-    )
+    def odswiez_status_bazy():
+        sciezka = pobierz_aktualna_sciezke_bazy(konfig)
+        baza = wczytaj_baze_pcmarket(sciezka)
+        mapa = wczytaj_baze_mapowan()
+        nazwa = os.path.basename(sciezka)
+        lbl_status_bazy.value = f"Załadowano {len(baza)} poz. ({nazwa}) + {len(mapa)} własnych reguł"
+        lbl_status_bazy.color = ft.Colors.GREEN_300 if len(baza) > 0 else ft.Colors.ORANGE_300
+        page.update()
 
     picker_bazy = ft.FilePicker()
     page.services.append(picker_bazy)
@@ -388,11 +524,8 @@ async def main(page: ft.Page):
                     konfig["baza_file_path"] = docelowa_sciezka
                     zapisz_konfiguracje(konfig)
 
-                    nowa_baza = wczytaj_baze_pcmarket(docelowa_sciezka)
-                    nowa_ilosc = len(nowa_baza)
-                    lbl_status_bazy.value = f"Załadowano {nowa_ilosc} poz. z: {oryginalna_nazwa}"
-                    lbl_status_bazy.color = ft.Colors.GREEN_300 if nowa_ilosc > 0 else ft.Colors.ORANGE_300
-                    status_text.value = f"Wczytano nową bazę ({nowa_ilosc} towarów)."
+                    odswiez_status_bazy()
+                    status_text.value = f"Wczytano nową bazę ({oryginalna_nazwa})."
                     status_text.color = ft.Colors.CYAN_ACCENT
                     page.update()
         except Exception as err_baza:
@@ -404,11 +537,18 @@ async def main(page: ft.Page):
         on_click=wybierz_plik_bazy
     )
 
+    btn_otworz_baze_w_ustawieniach = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Edytuj kody / dodaj powiązanie")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE),
+        on_click=otworz_okno_bazy_recznej
+    )
+
     kontener_baza_pcmarket = ft.Column(
         [
             ft.Text("Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300),
             chk_db_matching,
             btn_wybierz_baze,
+            btn_otworz_baze_w_ustawieniach,
             lbl_status_bazy
         ],
         spacing=6
@@ -501,17 +641,31 @@ async def main(page: ft.Page):
         on_click=usun_wybrane_zdjecie
     )
 
-    async def obroc_zdjecie(kat):
+    trwa_obracanie = False
+
+    async def obroc_zdjecie(kierunek: str):
+        nonlocal trwa_obracanie
         sciezka = aktualne_zdjecie["sciezka"]
-        if not sciezka or not os.path.exists(sciezka):
+        if not sciezka or not os.path.exists(sciezka) or trwa_obracanie:
             return
+            
+        trwa_obracanie = True
+        btn_obroc_lewo.disabled = True
+        btn_obroc_prawo.disabled = True
+        page.update()
+
         try:
             loop = asyncio.get_running_loop()
             nowa_sciezka = os.path.join(KATALOG_DANYCH, f"img_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg")
 
             def wykonaj_obrot():
                 with Image.open(sciezka) as im:
-                    obrocony = im.rotate(kat, expand=True)
+                    im = ImageOps.exif_transpose(im)
+                    if kierunek == "lewo":
+                        obrocony = im.transpose(Image.Transpose.ROTATE_90)
+                    else:
+                        obrocony = im.transpose(Image.Transpose.ROTATE_270)
+                        
                     if obrocony.mode in ("RGBA", "P"):
                         obrocony = obrocony.convert("RGB")
                     obrocony.save(nowa_sciezka, format="JPEG", quality=95)
@@ -526,28 +680,31 @@ async def main(page: ft.Page):
 
             aktualne_zdjecie["sciezka"] = nowa_sciezka
             podglad_obrazu.src = nowa_sciezka
-            status_text.value = f"Obrócono zdjęcie o {abs(kat)}°. Kliknij 'Wyślij do analizy'."
+            status_text.value = f"Obrócono zdjęcie w {kierunek}. Kliknij 'Wyślij do analizy'."
             status_text.color = ft.Colors.CYAN_ACCENT
-            page.update()
         except Exception as err_rot:
             status_text.value = f"Błąd obracania: {err_rot}"
             status_text.color = ft.Colors.RED_ACCENT
+        finally:
+            trwa_obracanie = False
+            btn_obroc_lewo.disabled = False
+            btn_obroc_prawo.disabled = False
             page.update()
 
     async def klik_obroc_lewo(e):
-        await obroc_zdjecie(90)
+        await obroc_zdjecie("lewo")
 
     async def klik_obroc_prawo(e):
-        await obroc_zdjecie(-90)
+        await obroc_zdjecie("prawo")
 
     btn_obroc_lewo = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.ROTATE_LEFT), ft.Text("Obróć w lewo")], alignment=ft.MainAxisAlignment.CENTER),
+        content=ft.Row([ft.Icon(ft.Icons.ROTATE_LEFT), ft.Text("W lewo")], alignment=ft.MainAxisAlignment.CENTER),
         expand=True,
         on_click=klik_obroc_lewo
     )
 
     btn_obroc_prawo = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.ROTATE_RIGHT), ft.Text("Obróć w prawo")], alignment=ft.MainAxisAlignment.CENTER),
+        content=ft.Row([ft.Icon(ft.Icons.ROTATE_RIGHT), ft.Text("W prawo")], alignment=ft.MainAxisAlignment.CENTER),
         expand=True,
         on_click=klik_obroc_prawo
     )
@@ -918,6 +1075,12 @@ async def main(page: ft.Page):
         on_click=klik_udostepnij
     )
 
+    btn_baza_ikona = ft.IconButton(
+        icon=ft.Icons.STORAGE,
+        tooltip="Baza i powiązania towarów",
+        on_click=otworz_okno_bazy_recznej
+    )
+
     btn_settings = ft.IconButton(
         icon=ft.Icons.SETTINGS,
         tooltip="Ustawienia połączenia",
@@ -933,7 +1096,7 @@ async def main(page: ft.Page):
                 ],
                 spacing=2
             ),
-            btn_settings
+            ft.Row([btn_baza_ikona, btn_settings], spacing=0)
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN
     )
@@ -983,6 +1146,8 @@ async def main(page: ft.Page):
         [btn_kopiuj_katalog, btn_wyczysc_katalog],
         spacing=10
     )
+
+    odswiez_status_bazy()
 
     page.add(
         ft.Column(
