@@ -133,11 +133,9 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
 
     mapa_nazw = {normalizuj_nazwe(t["nazwa"]): t["kod_wew"] for t in baza}
 
-    # 1. Dokładne trafienie 1:1
     if nazwa_faktura_clean in mapa_nazw:
         return mapa_nazw[nazwa_faktura_clean], kod_faktura_clean
 
-    # 2. Specjalna heurystyka liczby pojedynczej/mnogiej (np. BANAN vs BANANY)
     for wzorzec, kod in mapa_nazw.items():
         slowa_wzorce = wzorzec.split()
         slowa_faktura = nazwa_faktura_clean.split()
@@ -149,16 +147,17 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
                         if fuzz.token_set_ratio(nazwa_faktura_clean, wzorzec) >= 55:
                             return kod, kod_faktura_clean
 
-    # 3. Klasyczny Fuzz
-    najlepsza_nazwa, wynik = process.extractOne(
-        nazwa_faktura_clean, 
-        mapa_nazw.keys(), 
-        scorer=fuzz.token_set_ratio
-    )
-    if wynik >= 65:
-        return mapa_nazw[najlepsza_nazwa], kod_faktura_clean
+    if mapa_nazw: # Upewniamy się, że słownik nie jest pusty dla process.extractOne
+        najlepsza_nazwa, wynik = process.extractOne(
+            nazwa_faktura_clean, 
+            mapa_nazw.keys(), 
+            scorer=fuzz.token_set_ratio
+        )
+        if wynik >= 65:
+            return mapa_nazw[najlepsza_nazwa], kod_faktura_clean
 
-    return kod_faktura_clean, ""
+    # ZMIANA: Zwracamy puste pole, jeśli nie znajdziemy w bazie (wymusza szukanie)
+    return "", kod_faktura_clean
 
 def wyslij_wol(mac_address: str):
     czysty_mac = mac_address.replace(":", "").replace("-", "").replace(".", "")
@@ -172,8 +171,7 @@ def wyslij_wol(mac_address: str):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.sendto(magic_packet, ("<broadcast>", 9))
 
-def generuj_tekst_edi(dane: dict, uzywaj_bazy: bool, sciezka_bazy: str = None) -> str:
-    baza_towarowa = wczytaj_baze_pcmarket(sciezka_bazy) if uzywaj_bazy else []
+def generuj_tekst_edi(dane: dict) -> str:
     pozycje = dane.get("pozycje", [])
     wyst = dane.get("wystawca", {})
     odb = dane.get("odbiorca", {})
@@ -192,10 +190,8 @@ def generuj_tekst_edi(dane: dict, uzywaj_bazy: bool, sciezka_bazy: str = None) -
     ]
 
     for poz in pozycje:
-        nazwa = str(poz.get("nazwa", "")).strip().upper()
-        kod_faktura = str(poz.get("kod", "")).strip()
-
-        kod_glowny, kod_dodatkowy = dopasuj_towar_z_bazy(nazwa, kod_faktura, baza_towarowa, uzywaj_bazy)
+        nazwa = str(poz.get("oryg_nazwa", poz.get("nazwa", ""))).strip().upper()
+        kod_glowny = str(poz.get("kod_dopasowany", poz.get("kod", ""))).strip()
 
         vat_raw = str(poz.get("vat", "5")).replace("%", "").replace(",", ".").strip()
         try:
@@ -302,10 +298,37 @@ async def main(page: ft.Page):
         tresc_bledu.value = str(wiadomosc)
         page.show_dialog(dlg_alert)
 
+    # --- KONSOLA LOGÓW ---
+    konsola_logow = ft.ListView(expand=True, auto_scroll=True, height=300, spacing=5)
+
+    def dopisz_log(wiadomosc: str, kolor=ft.Colors.WHITE):
+        czas = datetime.now().strftime("%H:%M:%S")
+        konsola_logow.controls.append(ft.Text(f"[{czas}] {wiadomosc}", size=12, color=kolor))
+        page.update()
+
+    def kopiuj_logi(e):
+        tekst = "\n".join([c.value for c in konsola_logow.controls])
+        page.set_clipboard(tekst)
+        status_text.value = "Logi skopiowane do schowka."
+        page.update()
+        page.pop_dialog()
+
+    dlg_konsola = ft.AlertDialog(
+        title=ft.Text("Konsola systemowa (Logi)"),
+        content=ft.Container(content=konsola_logow, width=400, height=350),
+        actions=[
+            ft.Button("Kopiuj logi", on_click=kopiuj_logi),
+            ft.Button("Zamknij", on_click=zamknij_alert)
+        ]
+    )
+
+    def otworz_konsole(e):
+        page.show_dialog(dlg_konsola)
+
     def wykonaj_czyszczenie_katalogu(e):
         page.pop_dialog()
         usuniete_pliki = 0
-        wzorce = ["img_*.jpg", "foto_*.jpg", "edi_*.txt", "debug_odp_*.txt"]
+        wzorce = ["img_*.jpg", "foto_*.jpg", "edi_*.txt"]
         for wzorzec in wzorce:
             sciezka_wzorca = os.path.join(KATALOG_DANYCH, wzorzec)
             for sciezka_pliku in glob.glob(sciezka_wzorca):
@@ -335,7 +358,7 @@ async def main(page: ft.Page):
         ]
     )
 
-    # --- OKNO ZARZĄDZANIA WŁASNYMI KODAMI ---
+    # --- OKNO ZARZĄDZANIA WŁASNYMI KODAMI (GŁÓWNE) ---
     txt_nowy_wzorzec = ft.TextField(label="Nazwa z faktury (np. BANAN)", dense=True, expand=True)
     txt_nowy_kod = ft.TextField(label="Kod PC-Market", dense=True, width=130)
     lista_mapowan_view = ft.ListView(expand=True, spacing=6, height=220)
@@ -433,6 +456,213 @@ async def main(page: ft.Page):
         odswiez_widok_mapowan()
         page.show_dialog(dlg_baza_edycja)
 
+    # --- NOWE: WERYFIKACJA I WYSZUKIWARKA W LOCIE ---
+    stan_weryfikacji = {
+        "dane": None,
+        "baza": [],
+        "uzywa_bazy": True,
+        "zgodne_sumy": True,
+        "info_sumy": "",
+        "indeks_edytowany": -1
+    }
+
+    lista_pozycji_weryfikacji = ft.ListView(expand=True, spacing=10, height=350)
+    
+    def odswiez_weryfikacje():
+        lista_pozycji_weryfikacji.controls.clear()
+        if not stan_weryfikacji["dane"]:
+            return
+            
+        # Tworzymy słownik, żeby szybko znaleźć nazwę PC-Market po dopasowanym kodzie
+        mapa_kod_nazwa = {t["kod_wew"]: t["nazwa"] for t in stan_weryfikacji["baza"]}
+            
+        for i, poz in enumerate(stan_weryfikacji["dane"].get("pozycje", [])):
+            nazwa = poz.get("oryg_nazwa", "")
+            kod = poz.get("kod_dopasowany", "")
+            
+            if kod:
+                nazwa_dopasowana = mapa_kod_nazwa.get(kod, "Nieznana nazwa towaru")
+                # Wyświetlamy przypisaną nazwę, a kod pomocniczo w nawiasie
+                tekst_kodu = ft.Text(f"Towar: {nazwa_dopasowana} (Kod: {kod})", size=12, color=ft.Colors.CYAN_400)
+            else:
+                tekst_kodu = ft.Text("BRAK DOPASOWANIA (Wybierz ręcznie!)", size=12, color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD)
+            
+            lista_pozycji_weryfikacji.controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Column([
+                            ft.Text(nazwa, weight=ft.FontWeight.BOLD, size=13),
+                            tekst_kodu
+                        ], expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.SEARCH,
+                            tooltip="Wyszukaj i zmień",
+                            icon_color=ft.Colors.BLUE_400,
+                            on_click=lambda e, idx=i: otworz_wyszukiwarke(idx)
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    padding=8,
+                    bgcolor=ft.Colors.GREY_900,
+                    border_radius=8
+                )
+            )
+        page.update()
+
+    async def zapisz_edi_i_zakoncz():
+        dane = stan_weryfikacji["dane"]
+        zgodne_sumy = stan_weryfikacji["zgodne_sumy"]
+        info_sumy = stan_weryfikacji["info_sumy"]
+        uzywa_bazy = stan_weryfikacji["uzywa_bazy"]
+
+        dopisz_log("Generowanie struktury pliku EDI z potwierdzonymi kodami...")
+        tresc_edi = generuj_tekst_edi(dane)
+
+        nr_dok = "".join(c for c in dane.get("nr_dok", "faktura") if c.isalnum() or c in ("-", "_"))
+        nazwa_pliku = f"edi_{nr_dok}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        sciezka_edi = os.path.join(KATALOG_DANYCH, nazwa_pliku)
+
+        with open(sciezka_edi, "w", encoding="windows-1250", errors="replace") as f:
+            f.write(tresc_edi)
+
+        ostatnia_sciezka_edi["sciezka"] = sciezka_edi
+        dopisz_log(f"Zakończono sukcesem. Zapisano: {nazwa_pliku}", ft.Colors.GREEN)
+        
+        tryb_info = " (dopasowano do PC-Market)" if uzywa_bazy else " (kody oryginalne)"
+        if zgodne_sumy:
+            status_text.value = f"✅ Gotowe! Zapisano: {nazwa_pliku}\n({info_sumy}){tryb_info}"
+            status_text.color = ft.Colors.GREEN_ACCENT
+        else:
+            status_text.value = f"⚠️ Zapisano: {nazwa_pliku}\n{info_sumy}{tryb_info}"
+            status_text.color = ft.Colors.AMBER_ACCENT
+        
+        btn_udostepnij.visible = True
+        await udostepnij_plik(sciezka_edi)
+
+        aktualne_zdjecie["sciezka"] = None
+        podglad_obrazu.src = PUSTY_OBRAZ
+        podglad_obrazu.visible = False
+        btn_usun_zdjecie.visible = False
+        wiersz_obrotu.visible = False
+        btn_ponow.visible = False
+        ustaw_stan_przycisku_foto(False)
+        page.update()
+
+    async def klik_zatwierdz_weryfikacje(e):
+        page.pop_dialog()
+        await zapisz_edi_i_zakoncz()
+
+    def klik_anuluj_weryfikacje(e):
+        page.pop_dialog()
+        
+        # Wywołujemy gotową funkcję, która w pełni resetuje interfejs
+        usun_wybrane_zdjecie(None)
+        
+        status_text.value = "Anulowano generowanie pliku EDI. Wybierz nowe zdjęcie."
+        status_text.color = ft.Colors.RED_400
+        page.update()
+
+    dlg_weryfikacja = ft.AlertDialog(
+        title=ft.Text("Weryfikacja kodów z faktury"),
+        content=ft.Container(
+            content=ft.Column([
+                ft.Text("Sprawdź dopasowanie przed zapisem. Kliknij lupę, aby poprawić błędne.", size=12, color=ft.Colors.GREY_400),
+                lista_pozycji_weryfikacji
+            ], tight=True),
+            width=380,
+            height=450
+        ),
+        actions=[
+            ft.Button("Anuluj", color=ft.Colors.RED_400, on_click=klik_anuluj_weryfikacje),
+            ft.Button("Zatwierdź i Generuj", style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE), on_click=klik_zatwierdz_weryfikacje)
+        ]
+    )
+
+    lista_wyszukiwarki = ft.ListView(expand=True, spacing=5, height=350)
+    pole_szukaj_towaru = ft.TextField(label="Wpisz nazwę lub kod z PC-Market...", dense=True, on_change=lambda e: filtruj_wyszukiwarke())
+
+    def filtruj_wyszukiwarke():
+        lista_wyszukiwarki.controls.clear()
+        fraza = pole_szukaj_towaru.value.strip().upper()
+        
+        # Rozbijamy wpisany tekst na osobne fragmenty (np. "pasz firm" -> ["PASZ", "FIRM"])
+        fragmenty = fraza.split()
+        
+        licznik = 0
+        for towar in stan_weryfikacji["baza"]:
+            nazwa_towaru = towar["nazwa"]
+            kod_towaru = towar["kod_wew"]
+            
+            # Zakładamy z góry, że towar pasuje, chyba że brakuje w nim jakiegoś wpisanego fragmentu
+            czy_pasuje = True
+            for frag in fragmenty:
+                if frag not in nazwa_towaru and frag not in kod_towaru:
+                    czy_pasuje = False
+                    break
+            
+            if czy_pasuje:
+                lista_wyszukiwarki.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Column([
+                                ft.Text(nazwa_towaru, size=12, weight=ft.FontWeight.BOLD),
+                                ft.Text(f"Kod: {kod_towaru}", size=11, color=ft.Colors.GREY_400)
+                            ], expand=True),
+                            ft.Button("Wybierz", style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900), on_click=lambda e, k=kod_towaru: klik_wybierz_z_wyszukiwarki(k))
+                        ]),
+                        padding=4,
+                        border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_800))
+                    )
+                )
+                licznik += 1
+                if licznik >= 40: 
+                    break
+        page.update()
+
+    def otworz_wyszukiwarke(idx):
+        stan_weryfikacji["indeks_edytowany"] = idx
+        pole_szukaj_towaru.value = ""
+        filtruj_wyszukiwarke()
+        page.pop_dialog()
+        page.show_dialog(dlg_wyszukiwarka)
+
+    def klik_wybierz_z_wyszukiwarki(kod):
+        idx = stan_weryfikacji["indeks_edytowany"]
+        if idx >= 0 and stan_weryfikacji["dane"]:
+            poz = stan_weryfikacji["dane"]["pozycje"][idx]
+            poz["kod_dopasowany"] = kod
+            
+            oryginalna_nazwa = poz.get("oryg_nazwa", "").upper().strip()
+            if oryginalna_nazwa:
+                mapa = wczytaj_baze_mapowan()
+                mapa[oryginalna_nazwa] = kod
+                zapisz_baze_mapowan(mapa)
+                odswiez_status_bazy() 
+
+        odswiez_weryfikacje()
+        page.pop_dialog()
+        page.show_dialog(dlg_weryfikacja)
+
+    def zamknij_wyszukiwarke(e):
+        odswiez_weryfikacje()
+        page.pop_dialog()
+        page.show_dialog(dlg_weryfikacja)
+
+    dlg_wyszukiwarka = ft.AlertDialog(
+        title=ft.Text("Baza PC-Market"),
+        content=ft.Container(
+            content=ft.Column([
+                pole_szukaj_towaru,
+                lista_wyszukiwarki
+            ], tight=True),
+            width=380,
+            height=450
+        ),
+        actions=[
+            ft.Button("Wróć do weryfikacji", on_click=zamknij_wyszukiwarke)
+        ]
+    )
+
+    # --- USTAWIENIA SIECIOWE ---
     chk_cloud = ft.Checkbox(
         label="Użyj chmury (Google Gemini)",
         value=konfig.get("use_cloud", True)
@@ -538,7 +768,7 @@ async def main(page: ft.Page):
     )
 
     btn_otworz_baze_w_ustawieniach = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Edytuj kody / dodaj powiązanie")], alignment=ft.MainAxisAlignment.CENTER),
+        content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Zarządzaj powiązaniami")], alignment=ft.MainAxisAlignment.CENTER),
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE),
         on_click=otworz_okno_bazy_recznej
     )
@@ -793,6 +1023,7 @@ async def main(page: ft.Page):
             return
 
         try:
+            dopisz_log("Rozpoczęto analizę dokumentu.")
             uzywa_chmury = konfig.get("use_cloud", True)
             uzywa_bazy = konfig.get("use_db_matching", True)
             model_gemini = konfig.get("gemini_model", "gemini-2.5-flash").strip()
@@ -809,6 +1040,7 @@ async def main(page: ft.Page):
             page.update()
 
             loop = asyncio.get_running_loop()
+            dopisz_log("Przygotowywanie i kompresja obrazu...")
             base64_image = await loop.run_in_executor(None, kompresuj_do_base64, sciezka_obrazu)
 
             prompt = (
@@ -841,6 +1073,7 @@ async def main(page: ft.Page):
             )
 
             if uzywa_chmury:
+                dopisz_log("Konfiguracja połączenia z Google Gemini...")
                 klucz = konfig.get("gemini_api_key", "").strip()
                 pelny_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 naglowki = {
@@ -861,6 +1094,7 @@ async def main(page: ft.Page):
                     "max_tokens": 8192
                 }
             else:
+                dopisz_log("Konfiguracja połączenia z LM Studio...")
                 ip = konfig.get("local_ip", "192.168.1.154").strip()
                 port = konfig.get("local_port", "1234").strip()
                 pelny_url = f"http://{ip}:{port}/v1/chat/completions"
@@ -890,6 +1124,7 @@ async def main(page: ft.Page):
 
             async with httpx.AsyncClient(timeout=90.0, verify=True) as client:
                 for proba in range(max_prob):
+                    dopisz_log(f"Wysyłanie zapytania do modelu (próba {proba + 1}/{max_prob})...")
                     odpowiedz = await client.post(
                         pelny_url,
                         headers=naglowki,
@@ -901,6 +1136,7 @@ async def main(page: ft.Page):
                             czas_oczekiwania = opoznienie_poczatkowe * (2 ** proba)
                             status_text.value = f"Serwer zajęty ({odpowiedz.status_code}). Ponawianie {proba + 1}/{max_prob} za {czas_oczekiwania:.1f}s..."
                             status_text.color = ft.Colors.AMBER_ACCENT
+                            dopisz_log(f"Kod {odpowiedz.status_code}. Ponawianie za {czas_oczekiwania:.1f}s.", ft.Colors.AMBER)
                             page.update()
                             await asyncio.sleep(czas_oczekiwania)
                             continue
@@ -908,6 +1144,7 @@ async def main(page: ft.Page):
                     odpowiedz.raise_for_status()
                     break
 
+                dopisz_log("Pobrano odpowiedź. Odkodowywanie JSON...")
                 dane_odp = odpowiedz.json()
                 odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
 
@@ -927,58 +1164,46 @@ async def main(page: ft.Page):
                     blad_parsowania = "Brak klamrowej struktury JSON w odpowiedzi."
 
             if dane is None:
-                debug_path = os.path.join(KATALOG_DANYCH, f"debug_odp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
-                try:
-                    with open(debug_path, "w", encoding="utf-8") as f_debug:
-                        f_debug.write(odp_tekst)
-                except Exception:
-                    pass
-                
-                podglad = odp_tekst[:140] + "\n[...]\n" + odp_tekst[-80:] if len(odp_tekst) > 220 else odp_tekst
-                raise ValueError(
-                    f"Błąd parsowania JSON ({blad_parsowania}).\n"
-                    f"Zapisano debug: {os.path.basename(debug_path)}\n\n"
-                    f"Treść:\n{podglad}"
-                )
+                dopisz_log(f"BŁĄD PARSOWANIA JSON: {blad_parsowania}", ft.Colors.RED)
+                dopisz_log(f"Zwrócony tekst przez model:\n{odp_tekst}", ft.Colors.ORANGE)
+                raise ValueError(f"Błąd parsowania JSON ({blad_parsowania}). Sprawdź konsolę logów.")
 
+            dopisz_log("Wstępne mapowanie do bazy...")
             zgodne_sumy, info_sumy = weryfikuj_sumy_netto(dane)
             aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(konfig)
-            tresc_edi = generuj_tekst_edi(dane, uzywa_bazy, aktualna_baza_sciezka)
+            baza_towarowa = wczytaj_baze_pcmarket(aktualna_baza_sciezka) if uzywa_bazy else []
 
-            nr_dok = "".join(c for c in dane.get("nr_dok", "faktura") if c.isalnum() or c in ("-", "_"))
-            nazwa_pliku = f"edi_{nr_dok}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            sciezka_edi = os.path.join(KATALOG_DANYCH, nazwa_pliku)
+            # Obliczamy dopasowania z góry
+            for poz in dane.get("pozycje", []):
+                nazwa = str(poz.get("nazwa", "")).strip().upper()
+                kod_faktura = str(poz.get("kod", "")).strip()
+                kod_dop, _ = dopasuj_towar_z_bazy(nazwa, kod_faktura, baza_towarowa, uzywa_bazy)
+                poz["oryg_nazwa"] = nazwa
+                poz["kod_dopasowany"] = kod_dop
 
-            with open(sciezka_edi, "w", encoding="windows-1250", errors="replace") as f:
-                f.write(tresc_edi)
+            # Wrzucamy do struktury stanu
+            stan_weryfikacji["dane"] = dane
+            stan_weryfikacji["baza"] = baza_towarowa
+            stan_weryfikacji["uzywa_bazy"] = uzywa_bazy
+            stan_weryfikacji["zgodne_sumy"] = zgodne_sumy
+            stan_weryfikacji["info_sumy"] = info_sumy
+            stan_weryfikacji["indeks_edytowany"] = -1
 
-            ostatnia_sciezka_edi["sciezka"] = sciezka_edi
-            
-            tryb_info = " (dopasowano do PC-Market)" if uzywa_bazy else " (kody oryginalne)"
-            if zgodne_sumy:
-                status_text.value = f"✅ Gotowe! Zapisano: {nazwa_pliku}\n({info_sumy}){tryb_info}"
-                status_text.color = ft.Colors.GREEN_ACCENT
-            else:
-                status_text.value = f"⚠️ Zapisano: {nazwa_pliku}\n{info_sumy}{tryb_info}"
-                status_text.color = ft.Colors.AMBER_ACCENT
-            
-            btn_udostepnij.visible = True
-            await udostepnij_plik(sciezka_edi)
-
-            # Reset stanu po udanym eksporcie
-            aktualne_zdjecie["sciezka"] = None
-            podglad_obrazu.src = PUSTY_OBRAZ
-            podglad_obrazu.visible = False
-            btn_usun_zdjecie.visible = False
-            wiersz_obrotu.visible = False
-            btn_ponow.visible = False
-            ustaw_stan_przycisku_foto(False)
+            dopisz_log("Przygotowano okno weryfikacji.")
+            status_text.value = "Oczekiwanie na potwierdzenie kodów..."
+            status_text.color = ft.Colors.CYAN_ACCENT
+            pasek_postepu.visible = False
             page.update()
+
+            odswiez_weryfikacje()
+            page.show_dialog(dlg_weryfikacja)
 
         except Exception as err:
             komunikat = str(err)
+            dopisz_log(f"Wystąpił wyjątek: {komunikat}", ft.Colors.RED)
+            
             if "503" in komunikat:
-                pokaz_okno_bledu("⏳ Serwer Gemini przeciążony", "Odczekaj chwilę i kliknij przycisk odświeżenia/analizy ponownie.")
+                pokaz_okno_bledu("⏳ Serwer przeciążony", "Odczekaj chwilę i kliknij przycisk odświeżenia/analizy ponownie.")
             elif "429" in komunikat:
                 pokaz_okno_bledu("⏳ Limit zapytań wyczerpany", "Zbyt wiele zapytań w krótkim czasie. Odczekaj 30 sekund.")
             elif "401" in komunikat or "API_KEY_INVALID" in komunikat:
@@ -988,7 +1213,6 @@ async def main(page: ft.Page):
             
             status_text.value = f"Błąd: {komunikat}"
             status_text.color = ft.Colors.RED_ACCENT
-        finally:
             pasek_postepu.visible = False
             btn_foto.disabled = False
             czy_ma_foto = bool(aktualne_zdjecie["sciezka"])
@@ -1087,6 +1311,12 @@ async def main(page: ft.Page):
         on_click=otworz_ustawienia
     )
 
+    btn_konsola = ft.IconButton(
+        icon=ft.Icons.TERMINAL,
+        tooltip="Konsola zdarzeń (logi)",
+        on_click=otworz_konsole
+    )
+
     pasek_tytulu = ft.Row(
         [
             ft.Column(
@@ -1096,43 +1326,16 @@ async def main(page: ft.Page):
                 ],
                 spacing=2
             ),
-            ft.Row([btn_baza_ikona, btn_settings], spacing=0)
+            ft.Row([btn_baza_ikona, btn_konsola, btn_settings], spacing=0)
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN
     )
 
-    # --- Zarządzanie katalogiem roboczym ---
-    def klik_kopiuj_sciezke(e):
-        try:
-            if os.name == "nt":
-                os.startfile(KATALOG_DANYCH)
-                status_text.value = "Otwarto katalog w Eksploratorze."
-            else:
-                ft.Clipboard().set(KATALOG_DANYCH)
-                status_text.value = f"Skopiowano ścieżkę do schowka:\n{KATALOG_DANYCH}"
-            status_text.color = ft.Colors.CYAN_ACCENT
-            page.update()
-        except Exception as err_kat:
-            status_text.value = f"Błąd schowka/katalogu: {err_kat}"
-            status_text.color = ft.Colors.RED_ACCENT
-            page.update()
-
     def klik_wyczysc_katalog(e):
         page.show_dialog(dlg_potwierdz_czyszczenie)
 
-    btn_kopiuj_katalog = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.COPY, size=18), ft.Text("Skopiuj ścieżkę", size=12)], alignment=ft.MainAxisAlignment.CENTER),
-        style=ft.ButtonStyle(
-            bgcolor=ft.Colors.BLUE_GREY_900,
-            color=ft.Colors.BLUE_200,
-            shape=ft.RoundedRectangleBorder(radius=8)
-        ),
-        expand=True,
-        on_click=klik_kopiuj_sciezke
-    )
-
     btn_wyczysc_katalog = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.CLEANING_SERVICES, size=18), ft.Text("Wyczyść katalog", size=12)], alignment=ft.MainAxisAlignment.CENTER),
+        content=ft.Row([ft.Icon(ft.Icons.CLEANING_SERVICES, size=18), ft.Text("Wyczyść katalog tymczasowy", size=12)], alignment=ft.MainAxisAlignment.CENTER),
         style=ft.ButtonStyle(
             bgcolor=ft.Colors.RED_900,
             color=ft.Colors.WHITE,
@@ -1143,7 +1346,7 @@ async def main(page: ft.Page):
     )
 
     wiersz_zarzadzania_katalogiem = ft.Row(
-        [btn_kopiuj_katalog, btn_wyczysc_katalog],
+        [btn_wyczysc_katalog],
         spacing=10
     )
 
