@@ -131,11 +131,41 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
     if not uzywaj_bazy or not baza:
         return kod_faktura_clean, ""
 
-    mapa_nazw = {normalizuj_nazwe(t["nazwa"]): t["kod_wew"] for t in baza}
+    # --- GENEROWANIE WIRTUALNYCH ALIASÓW (Inteligentne dzielenie po ukośnikach) ---
+    mapa_nazw = {}
+    for t in baza:
+        kod = t["kod_wew"]
+        surowa_nazwa = t["nazwa"]
+        
+        czesci = surowa_nazwa.split("/")
+        trzon = normalizuj_nazwe(czesci[0])
+        
+        if trzon:
+            if trzon not in mapa_nazw:
+                mapa_nazw[trzon] = kod
+            
+        if len(czesci) > 1:
+            slowa_trzonu = trzon.split()
+            # Wyciągamy pierwsze słowo (Kategorię: np. SZYNKA, BOCZEK)
+            kategoria = slowa_trzonu[0] if slowa_trzonu else ""
+            
+            for wariant in czesci[1:]:
+                wariant_norm = normalizuj_nazwe(wariant)
+                if not wariant_norm:
+                    continue
+                    
+                # 1. Alias Pełny (Trzon + Wariant, np. SZYNKA OPIEKANA DUDA)
+                mapa_nazw[f"{trzon} {wariant_norm}"] = kod
+                
+                # 2. Alias Kategorialny (Kategoria + Wariant, np. SZYNKA DUDA)
+                if kategoria and kategoria != trzon:
+                    mapa_nazw[f"{kategoria} {wariant_norm}"] = kod
 
+    # 1. Szukamy dokładnego trafienia w rozszerzonej mapie aliasów
     if nazwa_faktura_clean in mapa_nazw:
         return mapa_nazw[nazwa_faktura_clean], kod_faktura_clean
 
+    # 2. Specjalna heurystyka liczby pojedynczej/mnogiej
     for wzorzec, kod in mapa_nazw.items():
         slowa_wzorce = wzorzec.split()
         slowa_faktura = nazwa_faktura_clean.split()
@@ -147,7 +177,8 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
                         if fuzz.token_set_ratio(nazwa_faktura_clean, wzorzec) >= 55:
                             return kod, kod_faktura_clean
 
-    if mapa_nazw: # Upewniamy się, że słownik nie jest pusty dla process.extractOne
+    # 3. Klasyczny Fuzz na wygenerowanych kombinacjach
+    if mapa_nazw:
         najlepsza_nazwa, wynik = process.extractOne(
             nazwa_faktura_clean, 
             mapa_nazw.keys(), 
@@ -156,7 +187,7 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
         if wynik >= 65:
             return mapa_nazw[najlepsza_nazwa], kod_faktura_clean
 
-    # ZMIANA: Zwracamy puste pole, jeśli nie znajdziemy w bazie (wymusza szukanie)
+    # Wymuszenie podświetlenia na czerwono w przypadku braku trafienia
     return "", kod_faktura_clean
 
 def wyslij_wol(mac_address: str):
@@ -306,10 +337,32 @@ async def main(page: ft.Page):
         konsola_logow.controls.append(ft.Text(f"[{czas}] {wiadomosc}", size=12, color=kolor))
         page.update()
 
-    def kopiuj_logi(e):
+    async def kopiuj_logi(e):
         tekst = "\n".join([c.value for c in konsola_logow.controls])
-        page.set_clipboard(tekst)
-        status_text.value = "Logi skopiowane do schowka."
+        sciezka_logow = os.path.join(KATALOG_DANYCH, f"logi_ocr_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+        
+        try:
+            # Zapisujemy logi do zwykłego pliku tekstowego
+            with open(sciezka_logow, "w", encoding="utf-8") as f:
+                f.write(tekst)
+                
+            # Używamy SPRAWDZONEJ metody udostępniania plików, tak jak przy plikach EDI
+            if hasattr(serwis_udostepniania, "share_files"):
+                try:
+                    await serwis_udostepniania.share_files(
+                        [ft.ShareFile.from_path(sciezka_logow)],
+                        text="Logi z aplikacji ocrLmm"
+                    )
+                except Exception:
+                    await serwis_udostepniania.share_files([sciezka_logow])
+            else:
+                dopisz_log("Błąd: Moduł udostępniania plików niedostępny.", ft.Colors.RED)
+            
+            status_text.value = "Otwarto menu udostępniania pliku z logami."
+        except Exception as err:
+            dopisz_log(f"Błąd eksportu: {err}", ft.Colors.RED)
+            status_text.value = "Błąd eksportu logów."
+            
         page.update()
         page.pop_dialog()
 
@@ -317,7 +370,8 @@ async def main(page: ft.Page):
         title=ft.Text("Konsola systemowa (Logi)"),
         content=ft.Container(content=konsola_logow, width=400, height=350),
         actions=[
-            ft.Button("Kopiuj logi", on_click=kopiuj_logi),
+            # Zmieniłem nazwę przycisku, żeby była zgodna z nowym działaniem
+            ft.Button("Udostępnij / Kopiuj", on_click=kopiuj_logi),
             ft.Button("Zamknij", on_click=zamknij_alert)
         ]
     )
@@ -548,17 +602,20 @@ async def main(page: ft.Page):
         page.update()
 
     async def klik_zatwierdz_weryfikacje(e):
-        page.pop_dialog()
+        dlg_weryfikacja.open = False  # Bezpieczne zamykanie okna
+        page.update()
         await zapisz_edi_i_zakoncz()
 
     def klik_anuluj_weryfikacje(e):
-        page.pop_dialog()
+        # Siłowe zdjęcie niewidzialnej szyby blokującej ekran
+        dlg_weryfikacja.open = False 
+        page.update()
         
-        # Wywołujemy gotową funkcję, która w pełni resetuje interfejs
         usun_wybrane_zdjecie(None)
         
         status_text.value = "Anulowano generowanie pliku EDI. Wybierz nowe zdjęcie."
         status_text.color = ft.Colors.RED_400
+        btn_foto.disabled = False  # Bezwzględne odblokowanie przycisku
         page.update()
 
     dlg_weryfikacja = ft.AlertDialog(
@@ -833,6 +890,8 @@ async def main(page: ft.Page):
             ikona_btn_foto.name = ft.Icons.PHOTO_LIBRARY
             tekst_btn_foto.value = "Wybierz zdjęcie faktury"
             btn_foto.style.bgcolor = ft.Colors.GREEN_800
+            
+        btn_foto.disabled = False # Gwarancja aktywności po zmianie koloru
 
     def ustaw_nowy_obraz(sciezka: str):
         nowa_sciezka = os.path.join(KATALOG_DANYCH, f"img_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
@@ -860,6 +919,7 @@ async def main(page: ft.Page):
         btn_ponow.visible = False
         wiersz_obrotu.visible = False
         ustaw_stan_przycisku_foto(False)
+        btn_foto.disabled = False  # Wymuszenie gotowości do pracy
         status_text.value = "Zdjęcie usunięte. Wybierz nowe zdjęcie faktury."
         status_text.color = ft.Colors.GREEN_ACCENT
         page.update()
