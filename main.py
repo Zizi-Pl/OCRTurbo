@@ -56,7 +56,7 @@ def zapisz_baze_mapowan(mapa: dict):
     except Exception as e:
         print(f"Błąd zapisu mapowań: {e}")
 
-# --- ORYGINALNE FUNKCJE ---
+# --- KONFIGURACJA I BAZA ---
 def wczytaj_konfiguracje() -> dict:
     if os.path.exists(CONFIG_FILE):
         try:
@@ -117,7 +117,6 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
             except Exception as e:
                 print(f"Błąd parsowania bazy PC-Market: {e}")
 
-    # Doklejenie ręcznych mapowań (mają priorytet)
     mapa_reczna = wczytaj_baze_mapowan()
     towary_dict.update(mapa_reczna)
 
@@ -135,7 +134,6 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
     if not uzywaj_bazy or not baza:
         return kod_faktura_clean, ""
 
-    # --- GENEROWANIE WIRTUALNYCH ALIASÓW (Inteligentne dzielenie po ukośnikach) ---
     mapa_nazw = {}
     for t in baza:
         kod = t["kod_wew"]
@@ -150,7 +148,6 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
             
         if len(czesci) > 1:
             slowa_trzonu = trzon.split()
-            # Wyciągamy pierwsze słowo (Kategorię: np. SZYNKA, BOCZEK)
             kategoria = slowa_trzonu[0] if slowa_trzonu else ""
             
             for wariant in czesci[1:]:
@@ -158,18 +155,14 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
                 if not wariant_norm:
                     continue
                     
-                # 1. Alias Pełny (Trzon + Wariant, np. SZYNKA OPIEKANA DUDA)
                 mapa_nazw[f"{trzon} {wariant_norm}"] = kod
                 
-                # 2. Alias Kategorialny (Kategoria + Wariant, np. SZYNKA DUDA)
                 if kategoria and kategoria != trzon:
                     mapa_nazw[f"{kategoria} {wariant_norm}"] = kod
 
-    # 1. Szukamy dokładnego trafienia w rozszerzonej mapie aliasów
     if nazwa_faktura_clean in mapa_nazw:
         return mapa_nazw[nazwa_faktura_clean], kod_faktura_clean
 
-    # 2. Specjalna heurystyka liczby pojedynczej/mnogiej
     for wzorzec, kod in mapa_nazw.items():
         slowa_wzorce = wzorzec.split()
         slowa_faktura = nazwa_faktura_clean.split()
@@ -181,7 +174,6 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
                         if fuzz.token_set_ratio(nazwa_faktura_clean, wzorzec) >= 55:
                             return kod, kod_faktura_clean
 
-    # 3. Klasyczny Fuzz na wygenerowanych kombinacjach
     if mapa_nazw:
         najlepsza_nazwa, wynik = process.extractOne(
             nazwa_faktura_clean, 
@@ -191,10 +183,9 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
         if wynik >= 65:
             return mapa_nazw[najlepsza_nazwa], kod_faktura_clean
 
-    # Wymuszenie podświetlenia na czerwono w przypadku braku trafienia
     return "", kod_faktura_clean
 
-def wyslij_wol(mac_address: str):
+def wyslij_wol(mac_address: str, docelowe_ip: str = "255.255.255.255"):
     czysty_mac = mac_address.replace(":", "").replace("-", "").replace(".", "")
     if len(czysty_mac) != 12:
         raise ValueError("Nieprawidłowy format adresu MAC.")
@@ -204,7 +195,19 @@ def wyslij_wol(mac_address: str):
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        s.sendto(magic_packet, ("<broadcast>", 9))
+        # 1. Wysyłka ogólna
+        try:
+            s.sendto(magic_packet, ("255.255.255.255", 9))
+        except Exception:
+            pass
+        # 2. Wysyłka podsieciowa (pewniejsza na Android / WiFi)
+        try:
+            czesci = docelowe_ip.split(".")
+            if len(czesci) == 4:
+                subnet_broadcast = f"{czesci[0]}.{czesci[1]}.{czesci[2]}.255"
+                s.sendto(magic_packet, (subnet_broadcast, 9))
+        except Exception:
+            pass
 
 def generuj_tekst_edi(dane: dict) -> str:
     pozycje = dane.get("pozycje", [])
@@ -347,11 +350,9 @@ async def main(page: ft.Page):
         sciezka_logow = os.path.join(KATALOG_DANYCH, f"logi_ocr_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
         
         try:
-            # Zapisujemy logi do zwykłego pliku tekstowego
             with open(sciezka_logow, "w", encoding="utf-8") as f:
                 f.write(tekst)
                 
-            # Używamy SPRAWDZONEJ metody udostępniania plików, tak jak przy plikach EDI
             if hasattr(serwis_udostepniania, "share_files"):
                 try:
                     await serwis_udostepniania.share_files(
@@ -376,7 +377,6 @@ async def main(page: ft.Page):
         title=ft.Text("Konsola systemowa (Logi)"),
         content=ft.Container(content=konsola_logow, width=400, height=350),
         actions=[
-            # Zmieniłem nazwę przycisku, żeby była zgodna z nowym działaniem
             ft.Button("Udostępnij / Kopiuj", on_click=kopiuj_logi),
             ft.Button("Zamknij", on_click=zamknij_alert)
         ]
@@ -419,7 +419,7 @@ async def main(page: ft.Page):
         ]
     )
 
-    # --- OKNO ZARZĄDZANIA WŁASNYMI KODAMI (GŁÓWNE) ---
+    # --- OKNO ZARZĄDZANIA WŁASNYMI KODAMI ---
     txt_nowy_wzorzec = ft.TextField(label="Nazwa z faktury (np. BANAN)", dense=True, expand=True)
     txt_nowy_kod = ft.TextField(label="Kod PC-Market", dense=True, width=130)
     lista_mapowan_view = ft.ListView(expand=True, spacing=6, height=220)
@@ -518,7 +518,7 @@ async def main(page: ft.Page):
         odswiez_widok_mapowan()
         page.show_dialog(dlg_baza_edycja)
 
-    # --- NOWE: WERYFIKACJA I WYSZUKIWARKA W LOCIE ---
+    # --- WERYFIKACJA I WYSZUKIWARKA W LOCIE ---
     stan_weryfikacji = {
         "dane": None,
         "baza": [],
@@ -533,11 +533,8 @@ async def main(page: ft.Page):
     def klik_usun_przypisanie(idx):
         if idx >= 0 and stan_weryfikacji["dane"]:
             poz = stan_weryfikacji["dane"]["pozycje"][idx]
-            
-            # 1. Kasujemy przypisany kod z pozycji
             poz["kod_dopasowany"] = ""
             
-            # 2. Usuwamy powiązanie z pamięci (żeby program zapomniał ten błąd!)
             oryginalna_nazwa = poz.get("oryg_nazwa", "").upper().strip()
             if oryginalna_nazwa:
                 mapa = wczytaj_baze_mapowan()
@@ -546,7 +543,6 @@ async def main(page: ft.Page):
                     zapisz_baze_mapowan(mapa)
                     odswiez_status_bazy()
             
-            # 3. Odświeżamy widok
             odswiez_weryfikacje()
             
     def odswiez_weryfikacje():
@@ -566,7 +562,6 @@ async def main(page: ft.Page):
             else:
                 tekst_kodu = ft.Text("BRAK DOPASOWANIA (Wybierz ręcznie!)", size=12, color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD)
             
-            # --- ZMIANA: Dynamiczna lista przycisków ---
             przyciski_akcji = [
                 ft.IconButton(
                     icon=ft.Icons.SEARCH,
@@ -576,7 +571,6 @@ async def main(page: ft.Page):
                 )
             ]
             
-            # Jeśli jest kod, dodajemy przycisk rozparowania
             if kod:
                 przyciski_akcji.append(
                     ft.IconButton(
@@ -594,7 +588,6 @@ async def main(page: ft.Page):
                             ft.Text(nazwa, weight=ft.FontWeight.BOLD, size=13),
                             tekst_kodu
                         ], expand=True),
-                        # Grupowanie przycisków w jednym rzędzie
                         ft.Row(przyciski_akcji, spacing=0) 
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     padding=8,
@@ -644,12 +637,11 @@ async def main(page: ft.Page):
         page.update()
 
     async def klik_zatwierdz_weryfikacje(e):
-        dlg_weryfikacja.open = False  # Bezpieczne zamykanie okna
+        dlg_weryfikacja.open = False
         page.update()
         await zapisz_edi_i_zakoncz()
 
     def klik_anuluj_weryfikacje(e):
-        # Siłowe zdjęcie niewidzialnej szyby blokującej ekran
         dlg_weryfikacja.open = False 
         page.update()
         
@@ -657,7 +649,7 @@ async def main(page: ft.Page):
         
         status_text.value = "Anulowano generowanie pliku EDI. Wybierz nowe zdjęcie."
         status_text.color = ft.Colors.RED_400
-        btn_foto.disabled = False  # Bezwzględne odblokowanie przycisku
+        btn_foto.disabled = False
         page.update()
 
     dlg_weryfikacja = ft.AlertDialog(
@@ -683,8 +675,6 @@ async def main(page: ft.Page):
     def filtruj_wyszukiwarke():
         lista_wyszukiwarki.controls.clear()
         fraza = pole_szukaj_towaru.value.strip().upper()
-        
-        # Rozbijamy wpisany tekst na osobne fragmenty (np. "pasz firm" -> ["PASZ", "FIRM"])
         fragmenty = fraza.split()
         
         licznik = 0
@@ -692,7 +682,6 @@ async def main(page: ft.Page):
             nazwa_towaru = towar["nazwa"]
             kod_towaru = towar["kod_wew"]
             
-            # Zakładamy z góry, że towar pasuje, chyba że brakuje w nim jakiegoś wpisanego fragmentu
             czy_pasuje = True
             for frag in fragmenty:
                 if frag not in nazwa_towaru and frag not in kod_towaru:
@@ -726,25 +715,18 @@ async def main(page: ft.Page):
         page.show_dialog(dlg_wyszukiwarka)
 
     def klik_wybierz_z_wyszukiwarki(kod):
-        # 1. Pobranie indeksu edytowanej pozycji z weryfikacji
         idx = stan_weryfikacji["indeks_edytowany"]
         if idx >= 0 and stan_weryfikacji["dane"]:
             poz = stan_weryfikacji["dane"]["pozycje"][idx]
-            
-            # 2. Przypisanie nowego kodu do pozycji wyświetlanej na ekranie
             poz["kod_dopasowany"] = kod
             
-            # 3. ZAPIS DO BAZY: Pobranie oryginalnej nazwy z faktury
             oryginalna_nazwa = poz.get("oryg_nazwa", "").upper().strip()
             if oryginalna_nazwa:
                 mapa = wczytaj_baze_mapowan()
                 mapa[oryginalna_nazwa] = kod
-                
-                # NATYCHMIASTOWY ZAPIS: Tutaj dane są fizycznie zrzucane do mapowania_towarow.json
                 zapisz_baze_mapowan(mapa)
                 odswiez_status_bazy()
 
-        # 4. Odświeżenie okna weryfikacji z nowymi danymi i powrót
         odswiez_weryfikacje()
         page.pop_dialog()
         page.show_dialog(dlg_weryfikacja)
@@ -798,11 +780,10 @@ async def main(page: ft.Page):
     txt_mac = ft.TextField(label="Adres MAC (Wake-on-LAN)", value=konfig.get("wol_mac", ""), dense=True)
     txt_ip = ft.TextField(label="IP Serwera LM Studio", value=konfig.get("local_ip", "192.168.1.154"), dense=True)
     txt_port = ft.TextField(label="Port LM Studio", value=konfig.get("local_port", "1234"), dense=True)
-    # --- ZARZĄDZANIE LISTĄ MODELI LOKALNYCH ---
+
     lista_zapisanych_modeli = konfig.get("local_models_list", ["qwen/qwen3-vl-8b-instruct", "qwen3-vl-4b-instruct"])
     aktualny_model = konfig.get("local_model", "qwen3-vl-4b-instruct")
 
-    # Upewniamy się, że aktualny model jest na liście
     if aktualny_model and aktualny_model not in lista_zapisanych_modeli:
         lista_zapisanych_modeli.append(aktualny_model)
 
@@ -819,7 +800,6 @@ async def main(page: ft.Page):
     def klik_dodaj_model(e):
         nowy_model = txt_dodaj_model.value.strip()
         if nowy_model:
-            # Sprawdzamy czy już istnieje na liście
             istniejace = [opt.key for opt in dd_local_model.options]
             if nowy_model not in istniejace:
                 dd_local_model.options.append(ft.dropdown.Option(nowy_model))
@@ -830,9 +810,7 @@ async def main(page: ft.Page):
     def klik_usun_model(e):
         model_do_usuniecia = dd_local_model.value
         if model_do_usuniecia:
-            # Filtrujemy opcje, usuwając wybraną
             dd_local_model.options = [opt for opt in dd_local_model.options if opt.key != model_do_usuniecia]
-            # Ustawiamy pierwszy z brzegu, jeśli lista nie jest pusta
             dd_local_model.value = dd_local_model.options[0].key if dd_local_model.options else None
             page.update()
 
@@ -853,8 +831,6 @@ async def main(page: ft.Page):
     wiersz_wyboru_modelu = ft.Row([dd_local_model, btn_usun_model])
     wiersz_dodawania_modelu = ft.Row([txt_dodaj_model, btn_dodaj_model])
 
-
-    
     txt_local_api_key = ft.TextField(
         label="Klucz API serwera lokalnego (opcjonalnie)",
         value=konfig.get("local_api_key", ""),
@@ -866,7 +842,8 @@ async def main(page: ft.Page):
     async def klik_budzenie_wol(e):
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, lambda: wyslij_wol(txt_mac.value.strip()))
+            target_ip = txt_ip.value.strip() or "192.168.1.154"
+            await loop.run_in_executor(None, lambda: wyslij_wol(txt_mac.value.strip(), target_ip))
             status_text.value = "Pakiet Wake-on-LAN wysłany."
             status_text.color = ft.Colors.CYAN_ACCENT
         except Exception as err_wol:
@@ -927,17 +904,6 @@ async def main(page: ft.Page):
         on_click=wybierz_plik_bazy
     )
 
-    btn_wybierz_mapowania = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE), ft.Text("Wgraj plik mapowań (.json)")], alignment=ft.MainAxisAlignment.CENTER),
-        style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_900, color=ft.Colors.WHITE),
-        on_click=lambda e: asyncio.run_coroutine_threadsafe(wybierz_plik_mapowan(e), asyncio.get_running_loop()) # lub zwykły on_click w zależności jak masz spięte asynchroniczność w przyciskach bazy
-    )
-    
-    btn_otworz_baze_w_ustawieniach = ft.Button(
-        content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Zarządzaj powiązaniami")], alignment=ft.MainAxisAlignment.CENTER),
-        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE),
-        on_click=otworz_okno_bazy_recznej
-    )
     picker_mapowan = ft.FilePicker()
     page.services.append(picker_mapowan)
 
@@ -952,14 +918,13 @@ async def main(page: ft.Page):
                 sciezka_zrodlowa = pliki[0].path
                 if sciezka_zrodlowa:
                     oryginalna_nazwa = os.path.basename(sciezka_zrodlowa)
-                    docelowa_sciezka = MAPA_FILE  # Nadpisujemy nasz stały plik mapowania
+                    docelowa_sciezka = MAPA_FILE
                     
                     try:
                         shutil.copyfile(sciezka_zrodlowa, docelowa_sciezka)
                     except Exception:
                         pass
 
-                    # Odświeżamy widoki, żeby nowe kody od razu były widoczne w programie
                     odswiez_widok_mapowan()
                     odswiez_status_bazy()
                     
@@ -969,18 +934,27 @@ async def main(page: ft.Page):
         except Exception as err_mapa:
             pokaz_okno_bledu("Błąd wczytywania mapowań", str(err_mapa))
 
-            
+    btn_wybierz_mapowania = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE), ft.Text("Wgraj plik mapowań (.json)")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_900, color=ft.Colors.WHITE),
+        on_click=wybierz_plik_mapowan
+    )
+    
+    btn_otworz_baze_w_ustawieniach = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Zarządzaj powiązaniami")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE),
+        on_click=otworz_okno_bazy_recznej
+    )
+
     async def udostepnij_bazy_kody(e):
         sciezka_bazy = pobierz_aktualna_sciezke_bazy(konfig)
         pliki_sciezki = []
         pliki_share = []
 
-        # Sprawdzenie bazy TXT
         if os.path.exists(sciezka_bazy):
             pliki_sciezki.append(sciezka_bazy)
             pliki_share.append(ft.ShareFile.from_path(sciezka_bazy))
 
-        # Sprawdzenie mapowań JSON
         if os.path.exists(MAPA_FILE):
             pliki_sciezki.append(MAPA_FILE)
             pliki_share.append(ft.ShareFile.from_path(MAPA_FILE))
@@ -997,7 +971,6 @@ async def main(page: ft.Page):
                         text="Aktualna baza towarowa i mapowania (ocrLmm)"
                     )
                 except Exception:
-                    # Fallback tak jak w eksporcie logów
                     await serwis_udostepniania.share_files(pliki_sciezki)
             else:
                 pokaz_okno_bledu("Błąd", "Funkcja udostępniania niedostępna na tym urządzeniu.")
@@ -1018,12 +991,11 @@ async def main(page: ft.Page):
             btn_wybierz_baze,
             btn_wybierz_mapowania,
             btn_otworz_baze_w_ustawieniach,
-            btn_udostepnij_kody,  # <--- Nowy przycisk dodany tutaj
+            btn_udostepnij_kody,
             lbl_status_bazy
         ],
         spacing=6
     )
-    
     
     kontener_gemini = ft.Column(
         [
@@ -1077,7 +1049,7 @@ async def main(page: ft.Page):
             tekst_btn_foto.value = "Wybierz zdjęcie faktury"
             btn_foto.style.bgcolor = ft.Colors.GREEN_800
             
-        btn_foto.disabled = False # Gwarancja aktywności po zmianie koloru
+        btn_foto.disabled = False
 
     def ustaw_nowy_obraz(sciezka: str):
         nowa_sciezka = os.path.join(KATALOG_DANYCH, f"img_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
@@ -1105,7 +1077,7 @@ async def main(page: ft.Page):
         btn_ponow.visible = False
         wiersz_obrotu.visible = False
         ustaw_stan_przycisku_foto(False)
-        btn_foto.disabled = False  # Wymuszenie gotowości do pracy
+        btn_foto.disabled = False
         status_text.value = "Zdjęcie usunięte. Wybierz nowe zdjęcie faktury."
         status_text.color = ft.Colors.GREEN_ACCENT
         page.update()
@@ -1199,10 +1171,8 @@ async def main(page: ft.Page):
         konfig["local_ip"] = txt_ip.value.strip()
         konfig["local_port"] = txt_port.value.strip()
         
-        # Zapisywanie modeli z rozwijanej listy
         konfig["local_model"] = dd_local_model.value or ""
         konfig["local_models_list"] = [opt.key for opt in dd_local_model.options]
-        
         konfig["local_api_key"] = txt_local_api_key.value.strip()
         
         zapisz_konfiguracje(konfig)
@@ -1372,15 +1342,44 @@ async def main(page: ft.Page):
             max_prob = 4
             opoznienie_poczatkowe = 2.0
             odpowiedz = None
+            automatyczny_wol_wyslany = False
 
             async with httpx.AsyncClient(timeout=300.0, verify=True) as client:
                 for proba in range(max_prob):
                     dopisz_log(f"Wysyłanie zapytania do modelu (próba {proba + 1}/{max_prob})...")
-                    odpowiedz = await client.post(
-                        pelny_url,
-                        headers=naglowki,
-                        json=cialo_zapytania
-                    )
+                    try:
+                        odpowiedz = await client.post(
+                            pelny_url,
+                            headers=naglowki,
+                            json=cialo_zapytania
+                        )
+                    except (httpx.ConnectError, httpx.ConnectTimeout) as net_err:
+                        # Automatyczne budzenie Wake-on-LAN w przypadku braku połączenia z serwerem lokalnym
+                        if not uzywa_chmury and not automatyczny_wol_wyslany:
+                            automatyczny_wol_wyslany = True
+                            mac_adres = konfig.get("wol_mac", "").strip()
+                            ip_serwera = konfig.get("local_ip", "192.168.1.154").strip()
+                            
+                            dopisz_log("Brak łączności z serwerem. Automatyczne wysyłanie pakietu WoL...", ft.Colors.AMBER)
+                            try:
+                                await loop.run_in_executor(None, lambda: wyslij_wol(mac_adres, ip_serwera))
+                                dopisz_log("Pakiet WoL wysłany. Oczekiwanie na uruchomienie serwera...", ft.Colors.CYAN)
+                            except Exception as e_wol:
+                                dopisz_log(f"Nie udało się wysłać WoL: {e_wol}", ft.Colors.RED)
+
+                            # Odliczanie czasu na start systemu i załadowanie LM Studio
+                            czas_na_start = 45
+                            for sek in range(czas_na_start, 0, -1):
+                                status_text.value = f"Uruchamianie serwera PC (WoL)... Ponowna próba za {sek}s"
+                                status_text.color = ft.Colors.CYAN_ACCENT
+                                page.update()
+                                await asyncio.sleep(1.0)
+                                
+                            status_text.value = "Wznawianie połączenia z serwerem..."
+                            page.update()
+                            continue
+                        else:
+                            raise net_err
                     
                     if odpowiedz.status_code in [503, 429]:
                         if proba < max_prob - 1:
@@ -1424,7 +1423,6 @@ async def main(page: ft.Page):
             aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(konfig)
             baza_towarowa = wczytaj_baze_pcmarket(aktualna_baza_sciezka) if uzywa_bazy else []
 
-            # Obliczamy dopasowania z góry
             for poz in dane.get("pozycje", []):
                 nazwa = str(poz.get("nazwa", "")).strip().upper()
                 kod_faktura = str(poz.get("kod", "")).strip()
@@ -1432,7 +1430,6 @@ async def main(page: ft.Page):
                 poz["oryg_nazwa"] = nazwa
                 poz["kod_dopasowany"] = kod_dop
 
-            # Wrzucamy do struktury stanu
             stan_weryfikacji["dane"] = dane
             stan_weryfikacji["baza"] = baza_towarowa
             stan_weryfikacji["uzywa_bazy"] = uzywa_bazy
