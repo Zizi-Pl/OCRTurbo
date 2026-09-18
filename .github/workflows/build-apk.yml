@@ -32,7 +32,7 @@ jobs:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" --icon .github/assets/app_icon.png -v
+          yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" --icon .github/assets/icon.png -v
 
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
