@@ -33,7 +33,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" -v
-
+          
+      - name: Zmiana ikony aplikacji
+        run: |
+          NEW_ICON=".github/assets/app_icon.png"
+          
+          # Sprawdzamy czy plik ikony istnieje, żeby akcja się nie wyłożyła
+          if [ -f "$NEW_ICON" ]; then
+            magick $NEW_ICON -resize 48x48   build/apk/src/main/res/mipmap-mdpi/ic_launcher.png || true
+            magick $NEW_ICON -resize 72x72   build/apk/src/main/res/mipmap-hdpi/ic_launcher.png || true
+            magick $NEW_ICON -resize 96x96   build/apk/src/main/res/mipmap-xhdpi/ic_launcher.png || true
+            magick $NEW_ICON -resize 144x144 build/apk/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
+            magick $NEW_ICON -resize 192x192 build/apk/src/main/res/mipmap-xxxhdpi/ic_launcher.png || true
+            echo "Ikony zostały pomyślnie przeskalowane i podmienione!"
+          else
+            echo "Ostrzeżenie: Nie znaleziono pliku ikony w $NEW_ICON"
+          fi
+          
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
         with:
