@@ -35,7 +35,13 @@ jobs:
           yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" -v
           
       - name: Instalacja ImageMagick
-        run: sudo apt-get update && sudo apt-get install -y imagemagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+          # Dodanie aliasu, jeśli system używa 'convert' zamiast 'magick'
+          if ! command -v magick &> /dev/null && command -v convert &> /dev/null; then
+            sudo ln -s $(which convert) /usr/local/bin/magick
+          fi
 
       - name: Zmiana ikony aplikacji
         run: |
