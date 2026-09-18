@@ -27,12 +27,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Przygotowanie ikony aplikacji
+        run: |
+          mkdir -p assets
+          cp .github/assets/app_icon.png assets/icon.png
+
       - name: Budowanie APK dla Androida
         env:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" --icon .github/assets/icon.png -v
+          yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" -v
 
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
