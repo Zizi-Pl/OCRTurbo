@@ -186,31 +186,45 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
     return "", kod_faktura_clean
 
 def wyslij_wol(mac_address: str, docelowe_ip: str = "255.255.255.255"):
-    czysty_mac = mac_address.replace(":", "").replace("-", "").replace(".", "")
+    czysty_mac = re.sub(r'[^0-9A-Fa-f]', '', mac_address)
     if len(czysty_mac) != 12:
         raise ValueError("Nieprawidłowy format adresu MAC.")
 
     dane_mac = bytes.fromhex(czysty_mac)
     magic_packet = b"\xff" * 6 + dane_mac * 16
-
+    
+    wyslano = False
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        # 1. Wysyłka ogólna rozgłoszeniowa
         try:
             s.sendto(magic_packet, ("255.255.255.255", 9))
+            wyslano = True
         except Exception:
             pass
         
-        # 2. Wysyłka dedykowana na porty i adresy podsieci
         try:
             czesci = docelowe_ip.split(".")
             if len(czesci) == 4:
                 subnet_broadcast = f"{czesci[0]}.{czesci[1]}.{czesci[2]}.255"
                 s.sendto(magic_packet, (subnet_broadcast, 9))
-                # Dodatkowo bezpośrednio na IP komputera (gdyby router blokował broadcast)
                 s.sendto(magic_packet, (docelowe_ip, 9))
+                wyslano = True
         except Exception:
             pass
+            
+    if not wyslano:
+        raise RuntimeError("Nie udało się wysłać pakietu WoL. Sprawdź połączenie z siecią Wi-Fi.")
+
+async def sprawdz_port_tcp(ip: str, port: int, timeout: float = 2.0) -> bool:
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, port), timeout=timeout
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        return False
 
 def generuj_tekst_edi(dane: dict) -> str:
     pozycje = dane.get("pozycje", [])
@@ -845,9 +859,12 @@ async def main(page: ft.Page):
     async def klik_budzenie_wol(e):
         try:
             loop = asyncio.get_running_loop()
+            # Pobieramy dane z UI
             target_ip = txt_ip.value.strip() or "192.168.1.154"
-            await loop.run_in_executor(None, lambda: wyslij_wol(txt_mac.value.strip(), target_ip))
-            status_text.value = "Pakiet Wake-on-LAN wysłany."
+            target_mac = txt_mac.value.strip()
+            
+            await loop.run_in_executor(None, wyslij_wol, target_mac, target_ip)
+            status_text.value = "Pakiet Wake-on-LAN wysłany pomyślnie."
             status_text.color = ft.Colors.CYAN_ACCENT
         except Exception as err_wol:
             status_text.value = f"Błąd WoL: {err_wol}"
@@ -1248,10 +1265,12 @@ async def main(page: ft.Page):
 
         try:
             dopisz_log("Rozpoczęto analizę dokumentu.")
-            uzywa_chmury = konfig.get("use_cloud", True)
-            uzywa_bazy = konfig.get("use_db_matching", True)
-            model_gemini = konfig.get("gemini_model", "gemini-3.6-flash").strip()
-            nazwa_silnika = model_gemini if uzywa_chmury else konfig.get("local_model", "LM Studio")
+            # Zawsze pobieramy aktualne dane z konfiguracji na dysku na wypadek zmian
+            aktualny_konfig = wczytaj_konfiguracje()
+            uzywa_chmury = aktualny_konfig.get("use_cloud", True)
+            uzywa_bazy = aktualny_konfig.get("use_db_matching", True)
+            model_gemini = aktualny_konfig.get("gemini_model", "gemini-3.6-flash").strip()
+            nazwa_silnika = model_gemini if uzywa_chmury else aktualny_konfig.get("local_model", "LM Studio")
             
             status_text.value = f"Przetwarzanie dokumentu ({nazwa_silnika})..."
             status_text.color = ft.Colors.ORANGE_ACCENT
@@ -1264,6 +1283,53 @@ async def main(page: ft.Page):
             page.update()
 
             loop = asyncio.get_running_loop()
+            
+            # --- PROAKTYWNE WYBUDZANIE (TYLKO DLA SERWERA LOKALNEGO) ---
+            if not uzywa_chmury:
+                ip_lokalne = aktualny_konfig.get("local_ip", "192.168.1.154").strip()
+                port_str = aktualny_konfig.get("local_port", "1234").strip()
+                mac_adres = aktualny_konfig.get("wol_mac", "").strip()
+                port_lokalny = int(port_str) if port_str.isdigit() else 1234
+                
+                dopisz_log(f"Sprawdzanie stanu serwera LM Studio ({ip_lokalne}:{port_lokalny})...")
+                
+                serwer_zyje = await sprawdz_port_tcp(ip_lokalne, port_lokalny, timeout=3.0)
+                if not serwer_zyje:
+                    dopisz_log("Serwer lokalny nie odpowiada. Wysyłanie pingu Wake-on-LAN...", ft.Colors.AMBER)
+                    try:
+                        await loop.run_in_executor(None, wyslij_wol, mac_adres, ip_lokalne)
+                        dopisz_log("Pakiet WoL wysłany. Czekam na załadowanie LM Studio...", ft.Colors.CYAN)
+                    except Exception as e_wol:
+                        dopisz_log(f"Błąd wysyłania WoL: {e_wol}", ft.Colors.RED)
+
+                    maks_czas_oczekiwania = 150
+                    interwal_sprawdzania = 10
+                    czas_miniony = 0
+                    
+                    while czas_miniony < maks_czas_oczekiwania:
+                        status_text.value = f"Oczekiwanie na uruchomienie LM Studio... ({czas_miniony}/{maks_czas_oczekiwania}s)"
+                        status_text.color = ft.Colors.CYAN_ACCENT
+                        page.update()
+                        
+                        await asyncio.sleep(interwal_sprawdzania)
+                        czas_miniony += interwal_sprawdzania
+                        
+                        # Cykliczne dobijanie pakietami WoL, gdyby pierwszy zaginął na routerze
+                        if czas_miniony % 30 == 0:
+                            try:
+                                await loop.run_in_executor(None, wyslij_wol, mac_adres, ip_lokalne)
+                            except Exception:
+                                pass
+                                
+                        if await sprawdz_port_tcp(ip_lokalne, port_lokalny, timeout=3.0):
+                            serwer_zyje = True
+                            dopisz_log(f"Serwer LM Studio gotowy do pracy po {czas_miniony}s!", ft.Colors.GREEN)
+                            break
+                    
+                    if not serwer_zyje:
+                        raise TimeoutError(f"Serwer pod adresem {ip_lokalne} nie uruchomił się w czasie {maks_czas_oczekiwania}s.")
+            # --- KONIEC PROCEDURY WYBUDZANIA ---
+
             dopisz_log("Przygotowywanie i kompresja obrazu...")
             base64_image = await loop.run_in_executor(None, kompresuj_do_base64, sciezka_obrazu)
 
@@ -1297,8 +1363,8 @@ async def main(page: ft.Page):
             )
 
             if uzywa_chmury:
-                dopisz_log("Konfiguracja połączenia z Google Gemini...")
-                klucz = konfig.get("gemini_api_key", "").strip()
+                dopisz_log("Wysyłanie danych do Google Gemini API...")
+                klucz = aktualny_konfig.get("gemini_api_key", "").strip()
                 pelny_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 naglowki = {
                     "Content-Type": "application/json",
@@ -1318,12 +1384,12 @@ async def main(page: ft.Page):
                     "max_tokens": 8192
                 }
             else:
-                dopisz_log("Konfiguracja połączenia z LM Studio...")
-                ip = konfig.get("local_ip", "192.168.1.154").strip()
-                port = konfig.get("local_port", "1234").strip()
+                dopisz_log("Wysyłanie zapytania do LM Studio...")
+                ip = aktualny_konfig.get("local_ip", "192.168.1.154").strip()
+                port = aktualny_konfig.get("local_port", "1234").strip()
                 pelny_url = f"http://{ip}:{port}/v1/chat/completions"
-                klucz = konfig.get("local_api_key", "").strip()
-                wybrany_model = konfig.get("local_model", "qwen/qwen3-vl-8b-instruct").strip()
+                klucz = aktualny_konfig.get("local_api_key", "").strip()
+                wybrany_model = aktualny_konfig.get("local_model", "qwen/qwen3-vl-8b-instruct").strip()
 
                 naglowki = {"Content-Type": "application/json"}
                 if klucz:
@@ -1345,45 +1411,22 @@ async def main(page: ft.Page):
             max_prob = 4
             opoznienie_poczatkowe = 2.0
             odpowiedz = None
-            automatyczny_wol_wyslany = False
+            
+            # W tym miejscu limit timeoutu dla HTTP. Samo połączenie TCP jest teraz szybkie (10s), ale czekanie na model pozostaje długie (300s).
+            timeout_cfg = httpx.Timeout(10.0, read=300.0)
+            
+            status_text.value = f"Przetwarzanie dokumentu przez {nazwa_silnika}..."
+            status_text.color = ft.Colors.ORANGE_ACCENT
+            page.update()
 
-            async with httpx.AsyncClient(timeout=300.0, verify=True) as client:
+            async with httpx.AsyncClient(timeout=timeout_cfg, verify=True) as client:
                 for proba in range(max_prob):
-                    dopisz_log(f"Wysyłanie zapytania do modelu (próba {proba + 1}/{max_prob})...")
-                    try:
-                        odpowiedz = await client.post(
-                            pelny_url,
-                            headers=naglowki,
-                            json=cialo_zapytania
-                        )
-                    except (httpx.ConnectError, httpx.ConnectTimeout) as net_err:
-                        # Automatyczne budzenie Wake-on-LAN w przypadku braku połączenia z serwerem lokalnym
-                        if not uzywa_chmury and not automatyczny_wol_wyslany:
-                            automatyczny_wol_wyslany = True
-                            mac_adres = konfig.get("wol_mac", "").strip()
-                            ip_serwera = konfig.get("local_ip", "192.168.1.154").strip()
-                            
-                            dopisz_log("Brak łączności z serwerem. Automatyczne wysyłanie pakietu WoL...", ft.Colors.AMBER)
-                            try:
-                                # Wywołanie w tle bez blokowania wątku głównego
-                                await loop.run_in_executor(None, wyslij_wol, mac_adres, ip_serwera)
-                                dopisz_log("Pakiet WoL wysłany. Oczekiwanie na uruchomienie serwera...", ft.Colors.CYAN)
-                            except Exception as e_wol:
-                                dopisz_log(f"Nie udało się wysłać WoL: {e_wol}", ft.Colors.RED)
-
-                            # Odliczanie czasu na start systemu i załadowanie LM Studio
-                            czas_na_start = 45
-                            for sek in range(czas_na_start, 0, -1):
-                                status_text.value = f"Uruchamianie serwera PC (WoL)... Ponowna próba za {sek}s"
-                                status_text.color = ft.Colors.CYAN_ACCENT
-                                page.update()
-                                await asyncio.sleep(1.0)
-                                
-                            status_text.value = "Wznawianie połączenia z serwerem..."
-                            page.update()
-                            continue
-                        else:
-                            raise net_err
+                    dopisz_log(f"Trwa odczytywanie tekstu przez LLM (próba {proba + 1}/{max_prob})...")
+                    odpowiedz = await client.post(
+                        pelny_url,
+                        headers=naglowki,
+                        json=cialo_zapytania
+                    )
                     
                     if odpowiedz.status_code in [503, 429]:
                         if proba < max_prob - 1:
@@ -1424,7 +1467,7 @@ async def main(page: ft.Page):
 
             dopisz_log("Wstępne mapowanie do bazy...")
             zgodne_sumy, info_sumy = weryfikuj_sumy_netto(dane)
-            aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(konfig)
+            aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(aktualny_konfig)
             baza_towarowa = wczytaj_baze_pcmarket(aktualna_baza_sciezka) if uzywa_bazy else []
 
             for poz in dane.get("pozycje", []):
