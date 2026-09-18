@@ -195,17 +195,20 @@ def wyslij_wol(mac_address: str, docelowe_ip: str = "255.255.255.255"):
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        # 1. Wysyłka ogólna
+        # 1. Wysyłka ogólna rozgłoszeniowa
         try:
             s.sendto(magic_packet, ("255.255.255.255", 9))
         except Exception:
             pass
-        # 2. Wysyłka podsieciowa (pewniejsza na Android / WiFi)
+        
+        # 2. Wysyłka dedykowana na porty i adresy podsieci
         try:
             czesci = docelowe_ip.split(".")
             if len(czesci) == 4:
                 subnet_broadcast = f"{czesci[0]}.{czesci[1]}.{czesci[2]}.255"
                 s.sendto(magic_packet, (subnet_broadcast, 9))
+                # Dodatkowo bezpośrednio na IP komputera (gdyby router blokował broadcast)
+                s.sendto(magic_packet, (docelowe_ip, 9))
         except Exception:
             pass
 
@@ -1362,7 +1365,8 @@ async def main(page: ft.Page):
                             
                             dopisz_log("Brak łączności z serwerem. Automatyczne wysyłanie pakietu WoL...", ft.Colors.AMBER)
                             try:
-                                await loop.run_in_executor(None, lambda: wyslij_wol(mac_adres, ip_serwera))
+                                # Wywołanie w tle bez blokowania wątku głównego
+                                await loop.run_in_executor(None, wyslij_wol, mac_adres, ip_serwera)
                                 dopisz_log("Pakiet WoL wysłany. Oczekiwanie na uruchomienie serwera...", ft.Colors.CYAN)
                             except Exception as e_wol:
                                 dopisz_log(f"Nie udało się wysłać WoL: {e_wol}", ft.Colors.RED)
