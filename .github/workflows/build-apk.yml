@@ -34,6 +34,9 @@ jobs:
         run: |
           yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" -v
           
+      - name: Instalacja ImageMagick
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
       - name: Zmiana ikony aplikacji
         run: |
           NEW_ICON=".github/assets/app_icon.png"
