@@ -26,10 +26,14 @@ DOMYSLNA_KONFIGURACJA = {
     "use_db_matching": True,
     "baza_file_path": DOMYSLNA_BAZA_FILE,
     "gemini_api_key": "",
-    "gemini_model": "gemini-2.5-flash",
+    "gemini_model": "gemini-3.6-flash",
     "local_ip": "192.168.1.154",
     "local_port": "1234",
     "local_model": "qwen3-vl-4b-instruct",
+    "local_models_list": [
+        "qwen/qwen3-vl-8b-instruct",
+        "qwen3-vl-4b-instruct"
+    ],
     "local_api_key": ""
 }
 
@@ -287,7 +291,7 @@ def weryfikuj_sumy_netto(dane: dict) -> tuple[bool, str]:
 
 def kompresuj_do_base64(sciezka_pliku: str) -> str:
     with Image.open(sciezka_pliku) as img:
-        img.thumbnail((2600, 2600))
+        img.thumbnail((1800, 1800))
         if img.mode != "RGB":
             img = img.convert("RGB")
         
@@ -317,6 +321,7 @@ async def main(page: ft.Page):
         page.pop_dialog()
 
     dlg_alert = ft.AlertDialog(
+        modal=True,
         title=tytul_bledu,
         content=tresc_bledu,
         actions=[
@@ -367,6 +372,7 @@ async def main(page: ft.Page):
         page.pop_dialog()
 
     dlg_konsola = ft.AlertDialog(
+        modal=True,
         title=ft.Text("Konsola systemowa (Logi)"),
         content=ft.Container(content=konsola_logow, width=400, height=350),
         actions=[
@@ -397,6 +403,7 @@ async def main(page: ft.Page):
         page.update()
 
     dlg_potwierdz_czyszczenie = ft.AlertDialog(
+        modal=True,
         title=ft.Text("⚠️ Potwierdzenie usunięcia"),
         content=ft.Text(
             "Czy na pewno chcesz usunąć wszystkie wygenerowane pliki EDI oraz zdjęcia tymczasowe z katalogu aplikacji?\n\n"
@@ -485,6 +492,7 @@ async def main(page: ft.Page):
     )
 
     dlg_baza_edycja = ft.AlertDialog(
+        modal=True,
         title=ft.Text("📦 Baza i Edycja Powiązań"),
         content=ft.Column(
             [
@@ -521,13 +529,31 @@ async def main(page: ft.Page):
     }
 
     lista_pozycji_weryfikacji = ft.ListView(expand=True, spacing=10, height=350)
-    
+
+    def klik_usun_przypisanie(idx):
+        if idx >= 0 and stan_weryfikacji["dane"]:
+            poz = stan_weryfikacji["dane"]["pozycje"][idx]
+            
+            # 1. Kasujemy przypisany kod z pozycji
+            poz["kod_dopasowany"] = ""
+            
+            # 2. Usuwamy powiązanie z pamięci (żeby program zapomniał ten błąd!)
+            oryginalna_nazwa = poz.get("oryg_nazwa", "").upper().strip()
+            if oryginalna_nazwa:
+                mapa = wczytaj_baze_mapowan()
+                if oryginalna_nazwa in mapa:
+                    del mapa[oryginalna_nazwa]
+                    zapisz_baze_mapowan(mapa)
+                    odswiez_status_bazy()
+            
+            # 3. Odświeżamy widok
+            odswiez_weryfikacje()
+            
     def odswiez_weryfikacje():
         lista_pozycji_weryfikacji.controls.clear()
         if not stan_weryfikacji["dane"]:
             return
             
-        # Tworzymy słownik, żeby szybko znaleźć nazwę PC-Market po dopasowanym kodzie
         mapa_kod_nazwa = {t["kod_wew"]: t["nazwa"] for t in stan_weryfikacji["baza"]}
             
         for i, poz in enumerate(stan_weryfikacji["dane"].get("pozycje", [])):
@@ -536,10 +562,30 @@ async def main(page: ft.Page):
             
             if kod:
                 nazwa_dopasowana = mapa_kod_nazwa.get(kod, "Nieznana nazwa towaru")
-                # Wyświetlamy przypisaną nazwę, a kod pomocniczo w nawiasie
                 tekst_kodu = ft.Text(f"Towar: {nazwa_dopasowana} (Kod: {kod})", size=12, color=ft.Colors.CYAN_400)
             else:
                 tekst_kodu = ft.Text("BRAK DOPASOWANIA (Wybierz ręcznie!)", size=12, color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD)
+            
+            # --- ZMIANA: Dynamiczna lista przycisków ---
+            przyciski_akcji = [
+                ft.IconButton(
+                    icon=ft.Icons.SEARCH,
+                    tooltip="Wyszukaj i zmień",
+                    icon_color=ft.Colors.BLUE_400,
+                    on_click=lambda e, idx=i: otworz_wyszukiwarke(idx)
+                )
+            ]
+            
+            # Jeśli jest kod, dodajemy przycisk rozparowania
+            if kod:
+                przyciski_akcji.append(
+                    ft.IconButton(
+                        icon=ft.Icons.LINK_OFF,
+                        tooltip="Rozparuj i zapomnij kod",
+                        icon_color=ft.Colors.RED_400,
+                        on_click=lambda e, idx=i: klik_usun_przypisanie(idx)
+                    )
+                )
             
             lista_pozycji_weryfikacji.controls.append(
                 ft.Container(
@@ -548,12 +594,8 @@ async def main(page: ft.Page):
                             ft.Text(nazwa, weight=ft.FontWeight.BOLD, size=13),
                             tekst_kodu
                         ], expand=True),
-                        ft.IconButton(
-                            icon=ft.Icons.SEARCH,
-                            tooltip="Wyszukaj i zmień",
-                            icon_color=ft.Colors.BLUE_400,
-                            on_click=lambda e, idx=i: otworz_wyszukiwarke(idx)
-                        )
+                        # Grupowanie przycisków w jednym rzędzie
+                        ft.Row(przyciski_akcji, spacing=0) 
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     padding=8,
                     bgcolor=ft.Colors.GREY_900,
@@ -619,6 +661,7 @@ async def main(page: ft.Page):
         page.update()
 
     dlg_weryfikacja = ft.AlertDialog(
+        modal=True,
         title=ft.Text("Weryfikacja kodów z faktury"),
         content=ft.Container(
             content=ft.Column([
@@ -683,18 +726,25 @@ async def main(page: ft.Page):
         page.show_dialog(dlg_wyszukiwarka)
 
     def klik_wybierz_z_wyszukiwarki(kod):
+        # 1. Pobranie indeksu edytowanej pozycji z weryfikacji
         idx = stan_weryfikacji["indeks_edytowany"]
         if idx >= 0 and stan_weryfikacji["dane"]:
             poz = stan_weryfikacji["dane"]["pozycje"][idx]
+            
+            # 2. Przypisanie nowego kodu do pozycji wyświetlanej na ekranie
             poz["kod_dopasowany"] = kod
             
+            # 3. ZAPIS DO BAZY: Pobranie oryginalnej nazwy z faktury
             oryginalna_nazwa = poz.get("oryg_nazwa", "").upper().strip()
             if oryginalna_nazwa:
                 mapa = wczytaj_baze_mapowan()
                 mapa[oryginalna_nazwa] = kod
+                
+                # NATYCHMIASTOWY ZAPIS: Tutaj dane są fizycznie zrzucane do mapowania_towarow.json
                 zapisz_baze_mapowan(mapa)
-                odswiez_status_bazy() 
+                odswiez_status_bazy()
 
+        # 4. Odświeżenie okna weryfikacji z nowymi danymi i powrót
         odswiez_weryfikacje()
         page.pop_dialog()
         page.show_dialog(dlg_weryfikacja)
@@ -705,6 +755,7 @@ async def main(page: ft.Page):
         page.show_dialog(dlg_weryfikacja)
 
     dlg_wyszukiwarka = ft.AlertDialog(
+        modal=True,
         title=ft.Text("Baza PC-Market"),
         content=ft.Container(
             content=ft.Column([
@@ -739,19 +790,71 @@ async def main(page: ft.Page):
     )
 
     txt_gemini_model = ft.TextField(
-        label="Model Google AI (np. gemini-2.5-flash)",
-        value=konfig.get("gemini_model", "gemini-2.5-flash"),
+        label="Model Google AI (np. gemini-3.6-flash)",
+        value=konfig.get("gemini_model", "gemini-3.6-flash"),
         dense=True
     )
 
     txt_mac = ft.TextField(label="Adres MAC (Wake-on-LAN)", value=konfig.get("wol_mac", ""), dense=True)
     txt_ip = ft.TextField(label="IP Serwera LM Studio", value=konfig.get("local_ip", "192.168.1.154"), dense=True)
     txt_port = ft.TextField(label="Port LM Studio", value=konfig.get("local_port", "1234"), dense=True)
-    txt_local_model = ft.TextField(
-        label="Model LM Studio",
-        value=konfig.get("local_model", "qwen3-vl-4b-instruct"),
-        dense=True
+    # --- ZARZĄDZANIE LISTĄ MODELI LOKALNYCH ---
+    lista_zapisanych_modeli = konfig.get("local_models_list", ["qwen/qwen3-vl-8b-instruct", "qwen3-vl-4b-instruct"])
+    aktualny_model = konfig.get("local_model", "qwen3-vl-4b-instruct")
+
+    # Upewniamy się, że aktualny model jest na liście
+    if aktualny_model and aktualny_model not in lista_zapisanych_modeli:
+        lista_zapisanych_modeli.append(aktualny_model)
+
+    dd_local_model = ft.Dropdown(
+        label="Wybierz model LM Studio",
+        options=[ft.dropdown.Option(m) for m in lista_zapisanych_modeli],
+        value=aktualny_model if lista_zapisanych_modeli else None,
+        dense=True,
+        expand=True
     )
+
+    txt_dodaj_model = ft.TextField(label="Nazwa nowego modelu...", dense=True, expand=True)
+
+    def klik_dodaj_model(e):
+        nowy_model = txt_dodaj_model.value.strip()
+        if nowy_model:
+            # Sprawdzamy czy już istnieje na liście
+            istniejace = [opt.key for opt in dd_local_model.options]
+            if nowy_model not in istniejace:
+                dd_local_model.options.append(ft.dropdown.Option(nowy_model))
+            dd_local_model.value = nowy_model
+            txt_dodaj_model.value = ""
+            page.update()
+
+    def klik_usun_model(e):
+        model_do_usuniecia = dd_local_model.value
+        if model_do_usuniecia:
+            # Filtrujemy opcje, usuwając wybraną
+            dd_local_model.options = [opt for opt in dd_local_model.options if opt.key != model_do_usuniecia]
+            # Ustawiamy pierwszy z brzegu, jeśli lista nie jest pusta
+            dd_local_model.value = dd_local_model.options[0].key if dd_local_model.options else None
+            page.update()
+
+    btn_dodaj_model = ft.IconButton(
+        icon=ft.Icons.ADD_CIRCLE, 
+        icon_color=ft.Colors.GREEN_400, 
+        tooltip="Dodaj do listy",
+        on_click=klik_dodaj_model
+    )
+
+    btn_usun_model = ft.IconButton(
+        icon=ft.Icons.DELETE, 
+        icon_color=ft.Colors.RED_400, 
+        tooltip="Usuń wybrany model",
+        on_click=klik_usun_model
+    )
+
+    wiersz_wyboru_modelu = ft.Row([dd_local_model, btn_usun_model])
+    wiersz_dodawania_modelu = ft.Row([txt_dodaj_model, btn_dodaj_model])
+
+
+    
     txt_local_api_key = ft.TextField(
         label="Klucz API serwera lokalnego (opcjonalnie)",
         value=konfig.get("local_api_key", ""),
@@ -830,17 +933,78 @@ async def main(page: ft.Page):
         on_click=otworz_okno_bazy_recznej
     )
 
+    async def udostepnij_bazy_kody(e):
+        sciezka_bazy = pobierz_aktualna_sciezke_bazy(konfig)
+        czas = datetime.now().strftime('%Y%m%d_%H%M%S')
+        polaczony_plik = os.path.join(KATALOG_DANYCH, f"Kody_Zespolone_{czas}.txt")
+
+        try:
+            # Tworzymy jeden wspólny plik
+            with open(polaczony_plik, "w", encoding="utf-8") as out_f:
+                out_f.write("=== BAZA PC-MARKET ===\n\n")
+                
+                # Odczyt i przepisanie głównej bazy (zabezpieczenie kodowania znaków)
+                if os.path.exists(sciezka_bazy):
+                    kodowania = ["windows-1250", "utf-8", "cp852"]
+                    for enc in kodowania:
+                        try:
+                            with open(sciezka_bazy, "r", encoding=enc) as f:
+                                out_f.write(f.read())
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                else:
+                    out_f.write("[Brak pliku bazy głównej]\n")
+
+                out_f.write("\n\n=== WŁASNE MAPOWANIA (RĘCZNE) ===\n\n")
+                
+                # Odczyt i ładne sformatowanie ręcznych kodów
+                if os.path.exists(MAPA_FILE):
+                    with open(MAPA_FILE, "r", encoding="utf-8") as f:
+                        mapa = json.load(f)
+                        if mapa:
+                            for nazwa, kod in mapa.items():
+                                out_f.write(f"{nazwa} -> {kod}\n")
+                        else:
+                            out_f.write("[Baza własnych mapowań jest pusta]\n")
+                else:
+                    out_f.write("[Brak pliku własnych mapowań]\n")
+
+            # Udostępnienie połączonego pliku
+            if hasattr(serwis_udostepniania, "share_files"):
+                try:
+                    await serwis_udostepniania.share_files(
+                        [ft.ShareFile.from_path(polaczony_plik)],
+                        text="Zespolone kody z programu ocrLmm"
+                    )
+                except Exception:
+                    await serwis_udostepniania.share_files([polaczony_plik])
+            else:
+                pokaz_okno_bledu("Błąd", "Funkcja udostępniania niedostępna na tym urządzeniu.")
+                
+        except Exception as err:
+            dopisz_log(f"Błąd łączenia kodów: {err}", ft.Colors.RED)
+            pokaz_okno_bledu("Błąd udostępniania", str(err))
+
+    btn_udostepnij_kody = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.IOS_SHARE), ft.Text("Udostępnij kody (TXT + JSON)")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_800, color=ft.Colors.WHITE),
+        on_click=udostepnij_bazy_kody
+    )
+
     kontener_baza_pcmarket = ft.Column(
         [
             ft.Text("Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300),
             chk_db_matching,
             btn_wybierz_baze,
             btn_otworz_baze_w_ustawieniach,
+            btn_udostepnij_kody,  # <--- Nowy przycisk dodany tutaj
             lbl_status_bazy
         ],
         spacing=6
     )
-
+    
+    
     kontener_gemini = ft.Column(
         [
             ft.Text("Konfiguracja Google Gemini:", weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_300),
@@ -857,7 +1021,9 @@ async def main(page: ft.Page):
             txt_mac,
             txt_ip,
             txt_port,
-            txt_local_model,
+            ft.Text("Zarządzanie modelami LM Studio:", size=12, color=ft.Colors.GREY_400),
+            wiersz_wyboru_modelu,
+            wiersz_dodawania_modelu,
             txt_local_api_key,
             btn_wol_ustawienia
         ],
@@ -1008,11 +1174,15 @@ async def main(page: ft.Page):
         konfig["use_cloud"] = chk_cloud.value
         konfig["use_db_matching"] = chk_db_matching.value
         konfig["gemini_api_key"] = txt_gemini_key.value.strip()
-        konfig["gemini_model"] = txt_gemini_model.value.strip() or "gemini-2.5-flash"
+        konfig["gemini_model"] = txt_gemini_model.value.strip() or "gemini-3.6-flash"
         konfig["wol_mac"] = txt_mac.value.strip()
         konfig["local_ip"] = txt_ip.value.strip()
         konfig["local_port"] = txt_port.value.strip()
-        konfig["local_model"] = txt_local_model.value.strip()
+        
+        # Zapisywanie modeli z rozwijanej listy
+        konfig["local_model"] = dd_local_model.value or ""
+        konfig["local_models_list"] = [opt.key for opt in dd_local_model.options]
+        
         konfig["local_api_key"] = txt_local_api_key.value.strip()
         
         zapisz_konfiguracje(konfig)
@@ -1022,6 +1192,7 @@ async def main(page: ft.Page):
         page.update()
 
     dlg_ustawienia = ft.AlertDialog(
+        modal=True,
         title=ft.Text("⚙️ Ustawienia połączenia"),
         content=ft.Column(
             [
@@ -1086,7 +1257,7 @@ async def main(page: ft.Page):
             dopisz_log("Rozpoczęto analizę dokumentu.")
             uzywa_chmury = konfig.get("use_cloud", True)
             uzywa_bazy = konfig.get("use_db_matching", True)
-            model_gemini = konfig.get("gemini_model", "gemini-2.5-flash").strip()
+            model_gemini = konfig.get("gemini_model", "gemini-3.6-flash").strip()
             nazwa_silnika = model_gemini if uzywa_chmury else konfig.get("local_model", "LM Studio")
             
             status_text.value = f"Przetwarzanie dokumentu ({nazwa_silnika})..."
@@ -1159,7 +1330,7 @@ async def main(page: ft.Page):
                 port = konfig.get("local_port", "1234").strip()
                 pelny_url = f"http://{ip}:{port}/v1/chat/completions"
                 klucz = konfig.get("local_api_key", "").strip()
-                wybrany_model = konfig.get("local_model", "qwen3-vl-4b-instruct").strip()
+                wybrany_model = konfig.get("local_model", "qwen/qwen3-vl-8b-instruct").strip()
 
                 naglowki = {"Content-Type": "application/json"}
                 if klucz:
@@ -1175,14 +1346,14 @@ async def main(page: ft.Page):
                         ]
                     }],
                     "temperature": 0.0,
-                    "max_tokens": 2500
+                    "max_tokens": 4096
                 }
 
             max_prob = 4
             opoznienie_poczatkowe = 2.0
             odpowiedz = None
 
-            async with httpx.AsyncClient(timeout=90.0, verify=True) as client:
+            async with httpx.AsyncClient(timeout=300.0, verify=True) as client:
                 for proba in range(max_prob):
                     dopisz_log(f"Wysyłanie zapytania do modelu (próba {proba + 1}/{max_prob})...")
                     odpowiedz = await client.post(
