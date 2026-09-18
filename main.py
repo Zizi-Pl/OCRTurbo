@@ -927,63 +927,82 @@ async def main(page: ft.Page):
         on_click=wybierz_plik_bazy
     )
 
+    btn_wybierz_mapowania = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE), ft.Text("Wgraj plik mapowań (.json)")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_900, color=ft.Colors.WHITE),
+        on_click=lambda e: asyncio.run_coroutine_threadsafe(wybierz_plik_mapowan(e), asyncio.get_running_loop()) # lub zwykły on_click w zależności jak masz spięte asynchroniczność w przyciskach bazy
+    )
+    
     btn_otworz_baze_w_ustawieniach = ft.Button(
         content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Zarządzaj powiązaniami")], alignment=ft.MainAxisAlignment.CENTER),
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE),
         on_click=otworz_okno_bazy_recznej
     )
+    picker_mapowan = ft.FilePicker()
+    page.services.append(picker_mapowan)
 
+    async def wybierz_plik_mapowan(e):
+        try:
+            pliki = await picker_mapowan.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["json"]
+            )
+            if pliki and len(pliki) > 0:
+                sciezka_zrodlowa = pliki[0].path
+                if sciezka_zrodlowa:
+                    oryginalna_nazwa = os.path.basename(sciezka_zrodlowa)
+                    docelowa_sciezka = MAPA_FILE  # Nadpisujemy nasz stały plik mapowania
+                    
+                    try:
+                        shutil.copyfile(sciezka_zrodlowa, docelowa_sciezka)
+                    except Exception:
+                        pass
+
+                    # Odświeżamy widoki, żeby nowe kody od razu były widoczne w programie
+                    odswiez_widok_mapowan()
+                    odswiez_status_bazy()
+                    
+                    status_text.value = f"Wczytano mapowania JSON ({oryginalna_nazwa})."
+                    status_text.color = ft.Colors.CYAN_ACCENT
+                    page.update()
+        except Exception as err_mapa:
+            pokaz_okno_bledu("Błąd wczytywania mapowań", str(err_mapa))
+
+            
     async def udostepnij_bazy_kody(e):
         sciezka_bazy = pobierz_aktualna_sciezke_bazy(konfig)
-        czas = datetime.now().strftime('%Y%m%d_%H%M%S')
-        polaczony_plik = os.path.join(KATALOG_DANYCH, f"Kody_Zespolone_{czas}.txt")
+        pliki_sciezki = []
+        pliki_share = []
+
+        # Sprawdzenie bazy TXT
+        if os.path.exists(sciezka_bazy):
+            pliki_sciezki.append(sciezka_bazy)
+            pliki_share.append(ft.ShareFile.from_path(sciezka_bazy))
+
+        # Sprawdzenie mapowań JSON
+        if os.path.exists(MAPA_FILE):
+            pliki_sciezki.append(MAPA_FILE)
+            pliki_share.append(ft.ShareFile.from_path(MAPA_FILE))
+
+        if not pliki_sciezki:
+            pokaz_okno_bledu("Brak plików", "Nie znaleziono aktywnej bazy TXT ani zapisanych mapowań JSON.")
+            return
 
         try:
-            # Tworzymy jeden wspólny plik
-            with open(polaczony_plik, "w", encoding="utf-8") as out_f:
-                out_f.write("=== BAZA PC-MARKET ===\n\n")
-                
-                # Odczyt i przepisanie głównej bazy (zabezpieczenie kodowania znaków)
-                if os.path.exists(sciezka_bazy):
-                    kodowania = ["windows-1250", "utf-8", "cp852"]
-                    for enc in kodowania:
-                        try:
-                            with open(sciezka_bazy, "r", encoding=enc) as f:
-                                out_f.write(f.read())
-                            break
-                        except UnicodeDecodeError:
-                            continue
-                else:
-                    out_f.write("[Brak pliku bazy głównej]\n")
-
-                out_f.write("\n\n=== WŁASNE MAPOWANIA (RĘCZNE) ===\n\n")
-                
-                # Odczyt i ładne sformatowanie ręcznych kodów
-                if os.path.exists(MAPA_FILE):
-                    with open(MAPA_FILE, "r", encoding="utf-8") as f:
-                        mapa = json.load(f)
-                        if mapa:
-                            for nazwa, kod in mapa.items():
-                                out_f.write(f"{nazwa} -> {kod}\n")
-                        else:
-                            out_f.write("[Baza własnych mapowań jest pusta]\n")
-                else:
-                    out_f.write("[Brak pliku własnych mapowań]\n")
-
-            # Udostępnienie połączonego pliku
             if hasattr(serwis_udostepniania, "share_files"):
                 try:
                     await serwis_udostepniania.share_files(
-                        [ft.ShareFile.from_path(polaczony_plik)],
-                        text="Zespolone kody z programu ocrLmm"
+                        pliki_share,
+                        text="Aktualna baza towarowa i mapowania (ocrLmm)"
                     )
                 except Exception:
-                    await serwis_udostepniania.share_files([polaczony_plik])
+                    # Fallback tak jak w eksporcie logów
+                    await serwis_udostepniania.share_files(pliki_sciezki)
             else:
                 pokaz_okno_bledu("Błąd", "Funkcja udostępniania niedostępna na tym urządzeniu.")
-                
         except Exception as err:
-            dopisz_log(f"Błąd łączenia kodów: {err}", ft.Colors.RED)
+            dopisz_log(f"Błąd eksportu kodów: {err}", ft.Colors.RED)
             pokaz_okno_bledu("Błąd udostępniania", str(err))
 
     btn_udostepnij_kody = ft.Button(
@@ -997,6 +1016,7 @@ async def main(page: ft.Page):
             ft.Text("Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300),
             chk_db_matching,
             btn_wybierz_baze,
+            btn_wybierz_mapowania,
             btn_otworz_baze_w_ustawieniach,
             btn_udostepnij_kody,  # <--- Nowy przycisk dodany tutaj
             lbl_status_bazy
