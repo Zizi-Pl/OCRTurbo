@@ -32,39 +32,8 @@ jobs:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" -v
-          
-      - name: Instalacja ImageMagick
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y imagemagick
-          # Dodanie aliasu, jeśli system używa 'convert' zamiast 'magick'
-          if ! command -v magick &> /dev/null && command -v convert &> /dev/null; then
-            sudo ln -s $(which convert) /usr/local/bin/magick
-          fi
+          yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" --icon .github/assets/app_icon.png -v
 
-      - name: Zmiana ikony aplikacji
-        run: |
-          NEW_ICON=".github/assets/app_icon.png"
-          
-          if [ -f "$NEW_ICON" ]; then
-            # Tworzenie katalogów, jeśli nie istnieją
-            mkdir -p build/apk/src/main/res/mipmap-mdpi
-            mkdir -p build/apk/src/main/res/mipmap-hdpi
-            mkdir -p build/apk/src/main/res/mipmap-xhdpi
-            mkdir -p build/apk/src/main/res/mipmap-xxhdpi
-            mkdir -p build/apk/src/main/res/mipmap-xxxhdpi
-
-            magick $NEW_ICON -resize 48x48   build/apk/src/main/res/mipmap-mdpi/ic_launcher.png || true
-            magick $NEW_ICON -resize 72x72   build/apk/src/main/res/mipmap-hdpi/ic_launcher.png || true
-            magick $NEW_ICON -resize 96x96   build/apk/src/main/res/mipmap-xhdpi/ic_launcher.png || true
-            magick $NEW_ICON -resize 144x144 build/apk/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
-            magick $NEW_ICON -resize 192x192 build/apk/src/main/res/mipmap-xxxhdpi/ic_launcher.png || true
-            echo "Ikony zostały pomyślnie przeskalowane i podmienione!"
-          else
-            echo "Ostrzeżenie: Nie znaleziono pliku ikony w $NEW_ICON"
-          fi
-          
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
         with:
