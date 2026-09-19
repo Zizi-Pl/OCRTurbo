@@ -21,13 +21,6 @@ CONFIG_FILE = os.path.join(KATALOG_DANYCH, "ocrlmm_mobile_config.json")
 DOMYSLNA_BAZA_FILE = os.path.join(KATALOG_DANYCH, "WĘDLINA.txt")
 MAPA_FILE = os.path.join(KATALOG_DANYCH, "mapowania_towarow.json")
 
-# ROLE PLIKÓW:
-#  * WĘDLINA.txt (baza PC-Market) - KATALOG towarów z kasy: "nazwa w PC-Market" -> kod wewnętrzny.
-#    Tylko do odczytu; aplikacja go nie zmienia, można go podmienić nowym eksportem.
-#  * mapowania_towarow.json - PAMIĘĆ użytkownika: "nazwa tak jak jest na fakturze" -> kod.
-#    Powstaje z ręcznych poprawek (lupa w weryfikacji, okno "Powiązania"). Ma pierwszeństwo
-#    przed dopasowaniem do katalogu i nigdy nie jest z nim mieszana.
-
 DOMYSLNA_KONFIGURACJA = {
     "wol_mac": "2C:F0:5D:E4:8E:85",
     "use_cloud": True,
@@ -61,7 +54,6 @@ def wczytaj_baze_mapowan() -> dict:
     return {}
 
 def zapisz_baze_mapowan(mapa: dict):
-    # Zapis atomowy: przerwany zapis nie zostawi uciętego pliku (który zostałby potem odczytany jako "pusty").
     tymczasowy = MAPA_FILE + ".tmp"
     try:
         with open(tymczasowy, "w", encoding="utf-8") as f:
@@ -71,7 +63,6 @@ def zapisz_baze_mapowan(mapa: dict):
         print(f"Błąd zapisu mapowań: {e}")
 
 def wczytaj_plik_mapowan_z_walidacja(sciezka: str) -> dict:
-    """Wczytuje zewnętrzny plik reguł i sprawdza, czy ma postać {"NAZWA": "KOD"}."""
     with open(sciezka, "r", encoding="utf-8-sig") as f:
         dane = json.load(f)
     if not isinstance(dane, dict):
@@ -124,8 +115,6 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
         sciezka = pobierz_aktualna_sciezke_bazy(konf)
 
     if os.path.exists(sciezka):
-        # UTF-8 (z ewentualnym BOM) musi być pierwszy: cp1250 przyjmuje prawie każdy bajt,
-        # więc plik UTF-8 "przeszedłby" jako cp1250 z krzaczkami zamiast polskich liter.
         kodowania = ["utf-8-sig", "windows-1250", "cp852"]
         linie = None
         
@@ -149,7 +138,6 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
             except Exception as e:
                 print(f"Błąd parsowania bazy PC-Market: {e}")
 
-    # Tylko katalog z pliku TXT. Ręczne reguły (JSON) są obsługiwane osobno w dopasuj_towar_z_bazy.
     return [{"nazwa": k, "kod_wew": v} for k, v in towary_dict.items()]
 
 def normalizuj_nazwe(tekst: str) -> str:
@@ -158,7 +146,6 @@ def normalizuj_nazwe(tekst: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 def zbuduj_indeks_nazw(baza: list[dict]) -> dict:
-    """Buduje indeks 'znormalizowana nazwa -> kod' z katalogu PC-Market (rozwija warianty po '/')."""
     mapa_nazw = {}
     for t in baza:
         kod = t["kod_wew"]
@@ -195,7 +182,6 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
     if not uzywaj_bazy:
         return kod_faktura_clean, ""
 
-    # 1. Ręczne reguły użytkownika (JSON) mają bezwzględne pierwszeństwo przed katalogiem.
     if mapowania is None:
         mapowania = wczytaj_baze_mapowan()
     for nazwa_reguly, kod_reguly in mapowania.items():
@@ -205,7 +191,6 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
     if not baza:
         return kod_faktura_clean, ""
 
-    # 2. Dopasowanie do katalogu PC-Market (dokładne, potem przybliżone).
     mapa_nazw = indeks if indeks is not None else zbuduj_indeks_nazw(baza)
 
     if nazwa_faktura_clean in mapa_nazw:
@@ -359,8 +344,6 @@ def weryfikuj_sumy_netto(dane: dict) -> tuple[bool, str]:
 
 def kompresuj_do_base64(sciezka_pliku: str, rozdzielczosc: int = 1800) -> str:
     with Image.open(sciezka_pliku) as img:
-        # Zdjęcia z telefonu przechowują obrót w EXIF. Podgląd w aplikacji go respektuje,
-        # a Pillow przy ponownym zapisie do JPEG go gubi - model dostałby obraz "na boku".
         img = ImageOps.exif_transpose(img)
         img.thumbnail((rozdzielczosc, rozdzielczosc), Image.Resampling.LANCZOS)
         if img.mode != "RGB":
@@ -385,6 +368,27 @@ async def main(page: ft.Page):
     ostatnia_sciezka_edi = {"sciezka": None}
     aktualne_zdjecie = {"sciezka": None}
 
+    def bezpiecznie_otworz_dialog(dlg):
+        try:
+            # Zdejmujemy aktywne okno, jeśli jakieś wisi
+            page.pop_dialog()
+            page.update()
+        except Exception:
+            pass
+        
+        try:
+            page.show_dialog(dlg)
+        except RuntimeError:
+            # Jeśli silnik nadal zgłasza "Dialog is already opened", 
+            # przypisujemy okno bezpośrednio i wymuszamy odświeżenie
+            try:
+                page.pop_dialog()
+                page.update()
+            except Exception:
+                pass
+            page.show_dialog(dlg)
+        page.update()
+
     tresc_bledu = ft.Text("", size=14)
     tytul_bledu = ft.Text("Komunikat", weight=ft.FontWeight.BOLD)
 
@@ -403,7 +407,7 @@ async def main(page: ft.Page):
     def pokaz_okno_bledu(tytul: str, wiadomosc: str):
         tytul_bledu.value = str(tytul)
         tresc_bledu.value = str(wiadomosc)
-        page.show_dialog(dlg_alert)
+        bezpiecznie_otworz_dialog(dlg_alert)
 
     # --- KONSOLA LOGÓW ---
     konsola_logow = ft.ListView(expand=True, auto_scroll=True, height=300, spacing=5)
@@ -442,6 +446,7 @@ async def main(page: ft.Page):
 
     dlg_konsola = ft.AlertDialog(
         modal=True,
+         
         title=ft.Text("Konsola systemowa (Logi)"),
         content=ft.Container(content=konsola_logow, width=400, height=350),
         actions=[
@@ -451,7 +456,7 @@ async def main(page: ft.Page):
     )
 
     def otworz_konsole(e):
-        page.show_dialog(dlg_konsola)
+        bezpiecznie_otworz_dialog(dlg_konsola)
 
     def wykonaj_czyszczenie_katalogu(e):
         page.pop_dialog()
@@ -472,6 +477,7 @@ async def main(page: ft.Page):
 
     dlg_potwierdz_czyszczenie = ft.AlertDialog(
         modal=True,
+         
         title=ft.Text("⚠️ Potwierdzenie usunięcia"),
         content=ft.Text(
             "Czy na pewno chcesz usunąć wszystkie wygenerowane pliki EDI oraz zdjęcia tymczasowe z katalogu aplikacji?\n\n"
@@ -561,6 +567,7 @@ async def main(page: ft.Page):
 
     dlg_baza_edycja = ft.AlertDialog(
         modal=True,
+         
         title=ft.Text("📦 Baza i Edycja Powiązań"),
         content=ft.Column(
             [
@@ -584,7 +591,7 @@ async def main(page: ft.Page):
 
     def otworz_okno_bazy_recznej(e):
         odswiez_widok_mapowan()
-        page.show_dialog(dlg_baza_edycja)
+        bezpiecznie_otworz_dialog(dlg_baza_edycja)
 
     # --- WERYFIKACJA I WYSZUKIWARKA W LOCIE ---
     stan_weryfikacji = {
@@ -705,12 +712,12 @@ async def main(page: ft.Page):
         page.update()
 
     async def klik_zatwierdz_weryfikacje(e):
-        dlg_weryfikacja.open = False
+        page.pop_dialog()
         page.update()
         await zapisz_edi_i_zakoncz()
 
     def klik_anuluj_weryfikacje(e):
-        dlg_weryfikacja.open = False 
+        page.pop_dialog()
         page.update()
         
         usun_wybrane_zdjecie(None)
@@ -723,6 +730,7 @@ async def main(page: ft.Page):
 
     dlg_weryfikacja = ft.AlertDialog(
         modal=True,
+         
         title=ft.Text("Weryfikacja kodów z faktury"),
         content=ft.Container(
             content=ft.Column([
@@ -780,8 +788,7 @@ async def main(page: ft.Page):
         stan_weryfikacji["indeks_edytowany"] = idx
         pole_szukaj_towaru.value = ""
         filtruj_wyszukiwarke()
-        page.pop_dialog()
-        page.show_dialog(dlg_wyszukiwarka)
+        bezpiecznie_otworz_dialog(dlg_wyszukiwarka)
 
     def klik_wybierz_z_wyszukiwarki(kod):
         idx = stan_weryfikacji["indeks_edytowany"]
@@ -797,16 +804,15 @@ async def main(page: ft.Page):
                 odswiez_status_bazy()
 
         odswiez_weryfikacje()
-        page.pop_dialog()
-        page.show_dialog(dlg_weryfikacja)
+        bezpiecznie_otworz_dialog(dlg_weryfikacja)
 
     def zamknij_wyszukiwarke(e):
         odswiez_weryfikacje()
-        page.pop_dialog()
-        page.show_dialog(dlg_weryfikacja)
+        bezpiecznie_otworz_dialog(dlg_weryfikacja)
 
     dlg_wyszukiwarka = ft.AlertDialog(
         modal=True,
+         
         title=ft.Text("Baza PC-Market"),
         content=ft.Container(
             content=ft.Column([
@@ -1014,13 +1020,9 @@ async def main(page: ft.Page):
                 sciezka_zrodlowa = pliki[0].path
                 if sciezka_zrodlowa:
                     oryginalna_nazwa = os.path.basename(sciezka_zrodlowa)
-
-                    # Walidacja: błędny plik zgłasza wyjątek (pokaże go okno błędu) i nic nie nadpisuje.
                     nowe_reguly = wczytaj_plik_mapowan_z_walidacja(sciezka_zrodlowa)
                     dotychczasowe = wczytaj_baze_mapowan()
 
-                    # Kopia zapasowa i SCALENIE (reguły z pliku wygrywają przy tych samych nazwach),
-                    # zamiast kasowania wszystkiego, czego nie ma w wgrywanym pliku.
                     if dotychczasowe and os.path.exists(MAPA_FILE):
                         shutil.copyfile(MAPA_FILE, MAPA_FILE + ".bak")
                     polaczone = {**dotychczasowe, **nowe_reguly}
@@ -1143,7 +1145,7 @@ async def main(page: ft.Page):
     pasek_postepu = ft.ProgressBar(visible=False, color=ft.Colors.GREEN_ACCENT)
     podglad_obrazu = ft.Image(src=PUSTY_OBRAZ, visible=False, fit="contain", height=240)
 
-    # --- APARAT (FLET-CAMERA Z JAWNĄ INICJALIZACJĄ) ---
+    # --- APARAT (FLET-CAMERA Z PEŁNĄ INICJALIZACJĄ) ---
     kamera_obiektyw = fc.Camera(expand=True)
     page.services.append(kamera_obiektyw)
 
@@ -1174,6 +1176,7 @@ async def main(page: ft.Page):
 
     dlg_aparat = ft.AlertDialog(
         modal=True,
+         
         title=ft.Text("Zrób zdjęcie faktury"),
         content=ft.Container(
             content=kamera_obiektyw,
@@ -1189,14 +1192,36 @@ async def main(page: ft.Page):
 
     async def otworz_aparat(e):
         try:
-            page.show_dialog(dlg_aparat)
+            bezpiecznie_otworz_dialog(dlg_aparat)
             page.update()
             
-            if hasattr(kamera_obiektyw, "initialize"):
-                inicjalizacja = kamera_obiektyw.initialize()
-                if hasattr(inicjalizacja, "__await__"):
-                    await inicjalizacja
-                page.update()
+            kamery = []
+            if hasattr(fc, "get_cameras"):
+                kamery = await fc.get_cameras()
+            elif hasattr(kamera_obiektyw, "get_cameras"):
+                res = kamera_obiektyw.get_cameras()
+                kamery = await res if hasattr(res, "__await__") else res
+
+            if not kamery:
+                dopisz_log("Brak wykrytych kamer w urządzeniu.", ft.Colors.RED)
+                return
+
+            wybrana_kamera = kamery[0]
+            for cam in kamery:
+                kierunek = str(getattr(cam, "lens_facing", "") or getattr(cam, "lens", "")).lower()
+                if "back" in kierunek:
+                    wybrana_kamera = cam
+                    break
+
+            preset = getattr(fc.ResolutionPreset, "HIGH", "high") if hasattr(fc, "ResolutionPreset") else "high"
+
+            inicjalizacja = kamera_obiektyw.initialize(wybrana_kamera, preset)
+            if hasattr(inicjalizacja, "__await__"):
+                await inicjalizacja
+                
+            page.update()
+            dopisz_log("Kamera zainicjalizowana pomyślnie!", ft.Colors.GREEN)
+
         except ft.FletUnsupportedPlatformException:
             status_text.value = "Aparat działa wyłącznie na urządzeniu mobilnym (Android)."
             status_text.color = ft.Colors.AMBER_ACCENT
@@ -1204,7 +1229,6 @@ async def main(page: ft.Page):
         except Exception as err:
             dopisz_log(f"Błąd inicjalizacji kamery: {err}", ft.Colors.RED)
     # --- KONIEC APARATU ---
-    
 
     def ustaw_stan_przycisku_foto(czy_ma_zdjecie: bool):
         if czy_ma_zdjecie:
@@ -1356,6 +1380,7 @@ async def main(page: ft.Page):
 
     dlg_ustawienia = ft.AlertDialog(
         modal=True,
+         
         title=ft.Text("⚙️ Ustawienia połączenia"),
         content=ft.Column(
             [
@@ -1380,7 +1405,7 @@ async def main(page: ft.Page):
     )
 
     def otworz_ustawienia(e):
-        page.show_dialog(dlg_ustawienia)
+        bezpiecznie_otworz_dialog(dlg_ustawienia)
 
     serwis_udostepniania = ft.Share()
     page.services.append(serwis_udostepniania)
@@ -1604,7 +1629,6 @@ async def main(page: ft.Page):
                 dopisz_log("Pobrano odpowiedź. Odkodowywanie JSON...")
                 dane_odp = odpowiedz.json()
                 wybor = dane_odp["choices"][0]
-                # content bywa None, gdy model "przemyślał" cały limit tokenów i nie zdążył odpowiedzieć
                 odp_tekst = (wybor.get("message", {}).get("content") or "").strip()
                 powod_konca = wybor.get("finish_reason")
 
@@ -1677,7 +1701,7 @@ async def main(page: ft.Page):
             page.update()
 
             odswiez_weryfikacje()
-            page.show_dialog(dlg_weryfikacja)
+            bezpiecznie_otworz_dialog(dlg_weryfikacja)
 
         except Exception as err:
             komunikat = str(err)
@@ -1831,7 +1855,7 @@ async def main(page: ft.Page):
     )
 
     def klik_wyczysc_katalog(e):
-        page.show_dialog(dlg_potwierdz_czyszczenie)
+        bezpiecznie_otworz_dialog(dlg_potwierdz_czyszczenie)
 
     btn_wyczysc_katalog = ft.Button(
         content=ft.Row([ft.Icon(ft.Icons.CLEANING_SERVICES, size=18), ft.Text("Wyczyść katalog tymczasowy", size=12)], alignment=ft.MainAxisAlignment.CENTER),
