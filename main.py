@@ -29,10 +29,11 @@ DOMYSLNA_KONFIGURACJA = {
     "gemini_model": "gemini-3.6-flash",
     "local_ip": "192.168.1.154",
     "local_port": "1234",
-    "local_model": "qwen3-vl-4b-instruct",
+    "local_model": "qwen3.5-9b",
     "local_models_list": [
         "qwen/qwen3-vl-8b-instruct",
-        "qwen3-vl-4b-instruct"
+        "qwen3-vl-4b-instruct",
+        "qwen3.5-9b"
     ],
     "local_api_key": ""
 }
@@ -1397,17 +1398,24 @@ async def main(page: ft.Page):
 
                 cialo_zapytania = {
                     "model": wybrany_model,
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]
-                    }],
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "Jesteś precyzyjnym systemem OCR. Zwracasz TYLKO i WYŁĄCZNIE surowy obiekt JSON. Nie używaj znaczników markdown (jak ```json) ani żadnego tekstu pobocznego."
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                            ]
+                        }
+                    ],
                     "temperature": 0.0,
-                    "max_tokens": 4096
-                }
-
+                    "max_tokens": 8192,
+                    "chat_template_kwargs": {"enable_thinking": False}}
+                
+                    
             max_prob = 4
             opoznienie_poczatkowe = 2.0
             odpowiedz = None
