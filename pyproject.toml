@@ -9,7 +9,6 @@ dependencies = [
     "Pillow",
     "thefuzz",
     "flet-camera==0.85.3",
-    "flet-permission-handler==0.85.3"
 ]
 
 [tool.flet]
