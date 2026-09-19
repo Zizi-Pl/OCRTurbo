@@ -1,5 +1,4 @@
 import flet_camera as fc
-import flet_permission_handler as fph
 import flet as ft
 import base64
 import json
@@ -1146,6 +1145,7 @@ async def main(page: ft.Page):
 
     # --- APARAT (FLET-CAMERA Z JAWNĄ INICJALIZACJĄ) ---
     kamera_obiektyw = fc.Camera(expand=True)
+    page.services.append(kamera_obiektyw)
 
     def on_foto_zrobione(e):
         if e.data:
@@ -1188,16 +1188,19 @@ async def main(page: ft.Page):
     )
 
     async def otworz_aparat(e):
-        page.show_dialog(dlg_aparat)
-        page.update()
-        
-        # Jawna inicjalizacja sensora aparatu po zamontowaniu w oknie dialogowym
         try:
+            page.show_dialog(dlg_aparat)
+            page.update()
+            
             if hasattr(kamera_obiektyw, "initialize"):
                 inicjalizacja = kamera_obiektyw.initialize()
                 if hasattr(inicjalizacja, "__await__"):
                     await inicjalizacja
                 page.update()
+        except ft.FletUnsupportedPlatformException:
+            status_text.value = "Aparat działa wyłącznie na urządzeniu mobilnym (Android)."
+            status_text.color = ft.Colors.AMBER_ACCENT
+            page.update()
         except Exception as err:
             dopisz_log(f"Błąd inicjalizacji kamery: {err}", ft.Colors.RED)
     # --- KONIEC APARATU ---
