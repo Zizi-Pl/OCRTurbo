@@ -1450,12 +1450,20 @@ async def main(page: ft.Page):
 
     dlg_aparat = ft.AlertDialog(
         modal=True,
-
         title=ft.Text("Zrób zdjęcie faktury"),
         content=ft.Container(
             content=kamera_obiektyw,
-            width=350,
-            height=480
+            width=500,
+            height=650,
+            bgcolor=ft.Colors.GREY_900,
+            border_radius=12,
+            border=ft.Border(
+                top=ft.BorderSide(2, ft.Colors.GREY_700),
+                bottom=ft.BorderSide(2, ft.Colors.GREY_700),
+                left=ft.BorderSide(2, ft.Colors.GREY_700),
+                right=ft.BorderSide(2, ft.Colors.GREY_700),
+            ),
+            padding=6
         ),
         actions=[
             btn_migawka,
@@ -1473,6 +1481,9 @@ async def main(page: ft.Page):
             return
 
         try:
+            dlg_aparat.content.width = min(page.width * 0.92, 650)
+            dlg_aparat.content.height = min(page.height * 0.82, 750)
+            
             bezpiecznie_otworz_dialog(dlg_aparat)
 
             kamery = await asyncio.wait_for(kamera_obiektyw.get_available_cameras(), timeout=10)
