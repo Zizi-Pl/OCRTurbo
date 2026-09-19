@@ -1,3 +1,5 @@
+import flet_camera as fc
+import flet_permission_handler as fph
 import flet as ft
 import base64
 import json
@@ -1142,22 +1144,77 @@ async def main(page: ft.Page):
     pasek_postepu = ft.ProgressBar(visible=False, color=ft.Colors.GREEN_ACCENT)
     podglad_obrazu = ft.Image(src=PUSTY_OBRAZ, visible=False, fit="contain", height=240)
 
-    async def otworz_aparat(e):
-        # Na systemie Android wywołanie FilePicker dla obrazów natywnie otwiera 
-        # dolne menu z wyborem: "Aparat" lub "Galeria/Pliki".
+    # --- APARAT I UPRAWNIENIA (NOWY STANDARD FLET) ---
+    try:
+        ph = fph.PermissionHandler()
+        page.overlay.append(ph)
+    except Exception:
+        ph = None
+
+    try:
+        kamera_obiektyw = fc.Camera(
+            expand=True
+        )
+    except Exception as e:
+        kamera_obiektyw = ft.Text(f"Aparat nie jest wspierany. Szczegóły: {e}")
+
+    def on_foto_zrobione(e):
+        if e.data:
+            page.pop_dialog()
+            ustaw_nowy_obraz(e.data)
+
+    if hasattr(kamera_obiektyw, "on_image_captured"):
+        kamera_obiektyw.on_image_captured = on_foto_zrobione
+
+    async def klik_migawka(e):
         try:
-            pliki = await picker.pick_files(
-                allow_multiple=False,
-                file_type=ft.FilePickerFileType.IMAGE
-            )
-            if pliki and len(pliki) > 0:
-                wybrany = pliki[0].path
-                if wybrany:
-                    ustaw_nowy_obraz(wybrany)
-        except Exception as e_pick:
-            status_text.value = f"Błąd uruchamiania interfejsu aparatu: {e_pick}"
-            status_text.color = ft.Colors.RED_400
-            page.update()
+            wynik = kamera_obiektyw.take_picture()
+            if hasattr(wynik, "__await__"):
+                wynik = await wynik
+            
+            # Nowy moduł zazwyczaj zwraca bezpośrednio ścieżkę do pliku
+            if isinstance(wynik, str):
+                page.pop_dialog()
+                ustaw_nowy_obraz(wynik)
+        except Exception:
+            pass 
+
+    btn_migawka = ft.FloatingActionButton(
+        icon=ft.Icons.CAMERA,
+        on_click=klik_migawka
+    )
+
+    dlg_aparat = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Zrób zdjęcie faktury"),
+        content=ft.Container(
+            content=kamera_obiektyw,
+            width=400,
+            height=500
+        ),
+        actions=[
+            btn_migawka,
+            ft.Button("Anuluj", on_click=lambda e: page.pop_dialog())
+        ],
+        actions_alignment=ft.MainAxisAlignment.CENTER
+    )
+
+    async def otworz_aparat(e):
+        try:
+            if ph:
+                status = await ph.check_permission_async(fph.PermissionType.CAMERA)
+                if status != fph.PermissionStatus.GRANTED:
+                    status = await ph.request_permission_async(fph.PermissionType.CAMERA)
+                
+                if status != fph.PermissionStatus.GRANTED:
+                    pokaz_okno_bledu("Uprawnienia", "Aplikacja wymaga dostępu do aparatu.")
+                    return
+        except Exception:
+            pass
+        
+        page.show_dialog(dlg_aparat)
+    # --- KONIEC APARATU ---
+    
 
     def ustaw_stan_przycisku_foto(czy_ma_zdjecie: bool):
         if czy_ma_zdjecie:
