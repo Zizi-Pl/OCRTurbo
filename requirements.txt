@@ -2,5 +2,3 @@ flet==0.85.3
 httpx
 Pillow
 thefuzz
-flet-camera
-flet-permission-handler
