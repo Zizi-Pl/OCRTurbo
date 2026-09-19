@@ -7,7 +7,9 @@ dependencies = [
     "flet==0.85.3",
     "httpx",
     "Pillow",
-    "thefuzz"
+    "thefuzz",
+    "flet-camera==0.85.3",
+    "flet-permission-handler==0.85.3"
 ]
 
 [tool.flet]
@@ -21,5 +23,7 @@ path = "."
 
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true
+"android.permission.CAMERA" = true
+"android.permission.RECORD_AUDIO" = false
 "android.permission.READ_MEDIA_IMAGES" = true
 "android.permission.READ_EXTERNAL_STORAGE" = true
