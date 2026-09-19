@@ -25,6 +25,7 @@ jobs:
       - name: Instalacja bibliotek i narzędzia Flet
         run: |
           python -m pip install --upgrade pip
+          pip install flet-cli==0.85.3
           pip install -r requirements.txt
 
       - name: Przygotowanie ikony aplikacji
