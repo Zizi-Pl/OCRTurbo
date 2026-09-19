@@ -1144,13 +1144,8 @@ async def main(page: ft.Page):
     pasek_postepu = ft.ProgressBar(visible=False, color=ft.Colors.GREEN_ACCENT)
     podglad_obrazu = ft.Image(src=PUSTY_OBRAZ, visible=False, fit="contain", height=240)
 
-    # --- APARAT (NATYWNY PODGLĄD FLET-CAMERA) ---
-    try:
-        kamera_obiektyw = fc.Camera(
-            expand=True
-        )
-    except Exception as e:
-        kamera_obiektyw = ft.Text(f"Aparat nie jest wspierany: {e}")
+    # --- APARAT (FLET-CAMERA Z JAWNĄ INICJALIZACJĄ) ---
+    kamera_obiektyw = fc.Camera(expand=True)
 
     def on_foto_zrobione(e):
         if e.data:
@@ -1182,8 +1177,8 @@ async def main(page: ft.Page):
         title=ft.Text("Zrób zdjęcie faktury"),
         content=ft.Container(
             content=kamera_obiektyw,
-            width=400,
-            height=500
+            width=350,
+            height=480
         ),
         actions=[
             btn_migawka,
@@ -1193,9 +1188,18 @@ async def main(page: ft.Page):
     )
 
     async def otworz_aparat(e):
-        # Android automatycznie wyświetli systemowe okno uprawnień
-        # przy pierwszej próbie zainicjalizowania fc.Camera w oknie dialogowym.
         page.show_dialog(dlg_aparat)
+        page.update()
+        
+        # Jawna inicjalizacja sensora aparatu po zamontowaniu w oknie dialogowym
+        try:
+            if hasattr(kamera_obiektyw, "initialize"):
+                inicjalizacja = kamera_obiektyw.initialize()
+                if hasattr(inicjalizacja, "__await__"):
+                    await inicjalizacja
+                page.update()
+        except Exception as err:
+            dopisz_log(f"Błąd inicjalizacji kamery: {err}", ft.Colors.RED)
     # --- KONIEC APARATU ---
     
 
