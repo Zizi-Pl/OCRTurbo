@@ -1144,19 +1144,13 @@ async def main(page: ft.Page):
     pasek_postepu = ft.ProgressBar(visible=False, color=ft.Colors.GREEN_ACCENT)
     podglad_obrazu = ft.Image(src=PUSTY_OBRAZ, visible=False, fit="contain", height=240)
 
-    # --- APARAT I UPRAWNIENIA (NOWY STANDARD FLET) ---
-    try:
-        ph = fph.PermissionHandler()
-        page.overlay.append(ph)
-    except Exception:
-        ph = None
-
+    # --- APARAT (NATYWNY PODGLĄD FLET-CAMERA) ---
     try:
         kamera_obiektyw = fc.Camera(
             expand=True
         )
     except Exception as e:
-        kamera_obiektyw = ft.Text(f"Aparat nie jest wspierany. Szczegóły: {e}")
+        kamera_obiektyw = ft.Text(f"Aparat nie jest wspierany: {e}")
 
     def on_foto_zrobione(e):
         if e.data:
@@ -1172,12 +1166,11 @@ async def main(page: ft.Page):
             if hasattr(wynik, "__await__"):
                 wynik = await wynik
             
-            # Nowy moduł zazwyczaj zwraca bezpośrednio ścieżkę do pliku
             if isinstance(wynik, str):
                 page.pop_dialog()
                 ustaw_nowy_obraz(wynik)
-        except Exception:
-            pass 
+        except Exception as err:
+            dopisz_log(f"Błąd migawki: {err}", ft.Colors.RED)
 
     btn_migawka = ft.FloatingActionButton(
         icon=ft.Icons.CAMERA,
@@ -1200,18 +1193,8 @@ async def main(page: ft.Page):
     )
 
     async def otworz_aparat(e):
-        try:
-            if ph:
-                status = await ph.check_permission_async(fph.PermissionType.CAMERA)
-                if status != fph.PermissionStatus.GRANTED:
-                    status = await ph.request_permission_async(fph.PermissionType.CAMERA)
-                
-                if status != fph.PermissionStatus.GRANTED:
-                    pokaz_okno_bledu("Uprawnienia", "Aplikacja wymaga dostępu do aparatu.")
-                    return
-        except Exception:
-            pass
-        
+        # Android automatycznie wyświetli systemowe okno uprawnień
+        # przy pierwszej próbie zainicjalizowania fc.Camera w oknie dialogowym.
         page.show_dialog(dlg_aparat)
     # --- KONIEC APARATU ---
     
