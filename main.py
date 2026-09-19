@@ -20,6 +20,13 @@ CONFIG_FILE = os.path.join(KATALOG_DANYCH, "ocrlmm_mobile_config.json")
 DOMYSLNA_BAZA_FILE = os.path.join(KATALOG_DANYCH, "WĘDLINA.txt")
 MAPA_FILE = os.path.join(KATALOG_DANYCH, "mapowania_towarow.json")
 
+# ROLE PLIKÓW:
+#  * WĘDLINA.txt (baza PC-Market) - KATALOG towarów z kasy: "nazwa w PC-Market" -> kod wewnętrzny.
+#    Tylko do odczytu; aplikacja go nie zmienia, można go podmienić nowym eksportem.
+#  * mapowania_towarow.json - PAMIĘĆ użytkownika: "nazwa tak jak jest na fakturze" -> kod.
+#    Powstaje z ręcznych poprawek (lupa w weryfikacji, okno "Powiązania"). Ma pierwszeństwo
+#    przed dopasowaniem do katalogu i nigdy nie jest z nim mieszana.
+
 DOMYSLNA_KONFIGURACJA = {
     "wol_mac": "2C:F0:5D:E4:8E:85",
     "use_cloud": True,
@@ -35,7 +42,8 @@ DOMYSLNA_KONFIGURACJA = {
         "qwen3-vl-4b-instruct",
         "qwen3.5-9b"
     ],
-    "local_api_key": ""
+    "local_api_key": "",
+    "image_resolution": 1800
 }
 
 PUSTY_OBRAZ = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
@@ -44,18 +52,38 @@ PUSTY_OBRAZ = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAA
 def wczytaj_baze_mapowan() -> dict:
     if os.path.exists(MAPA_FILE):
         try:
-            with open(MAPA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(MAPA_FILE, "r", encoding="utf-8-sig") as f:
+                dane = json.load(f)
+            return dane if isinstance(dane, dict) else {}
         except Exception:
             return {}
     return {}
 
 def zapisz_baze_mapowan(mapa: dict):
+    # Zapis atomowy: przerwany zapis nie zostawi uciętego pliku (który zostałby potem odczytany jako "pusty").
+    tymczasowy = MAPA_FILE + ".tmp"
     try:
-        with open(MAPA_FILE, "w", encoding="utf-8") as f:
+        with open(tymczasowy, "w", encoding="utf-8") as f:
             json.dump(mapa, f, indent=4, ensure_ascii=False)
+        os.replace(tymczasowy, MAPA_FILE)
     except Exception as e:
         print(f"Błąd zapisu mapowań: {e}")
+
+def wczytaj_plik_mapowan_z_walidacja(sciezka: str) -> dict:
+    """Wczytuje zewnętrzny plik reguł i sprawdza, czy ma postać {"NAZWA": "KOD"}."""
+    with open(sciezka, "r", encoding="utf-8-sig") as f:
+        dane = json.load(f)
+    if not isinstance(dane, dict):
+        raise ValueError('Plik JSON musi zawierać słownik w postaci {"NAZWA": "KOD"}.')
+    wynik = {}
+    for k, v in dane.items():
+        nazwa = str(k).strip().upper()
+        kod = str(v).strip()
+        if nazwa and kod:
+            wynik[nazwa] = kod
+    if not wynik:
+        raise ValueError("Plik nie zawiera żadnych poprawnych reguł.")
+    return wynik
 
 # --- KONFIGURACJA I BAZA ---
 def wczytaj_konfiguracje() -> dict:
@@ -95,7 +123,9 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
         sciezka = pobierz_aktualna_sciezke_bazy(konf)
 
     if os.path.exists(sciezka):
-        kodowania = ["windows-1250", "utf-8", "cp852"]
+        # UTF-8 (z ewentualnym BOM) musi być pierwszy: cp1250 przyjmuje prawie każdy bajt,
+        # więc plik UTF-8 "przeszedłby" jako cp1250 z krzaczkami zamiast polskich liter.
+        kodowania = ["utf-8-sig", "windows-1250", "cp852"]
         linie = None
         
         for enc in kodowania:
@@ -118,9 +148,7 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
             except Exception as e:
                 print(f"Błąd parsowania bazy PC-Market: {e}")
 
-    mapa_reczna = wczytaj_baze_mapowan()
-    towary_dict.update(mapa_reczna)
-
+    # Tylko katalog z pliku TXT. Ręczne reguły (JSON) są obsługiwane osobno w dopasuj_towar_z_bazy.
     return [{"nazwa": k, "kod_wew": v} for k, v in towary_dict.items()]
 
 def normalizuj_nazwe(tekst: str) -> str:
@@ -128,13 +156,8 @@ def normalizuj_nazwe(tekst: str) -> str:
     t = re.sub(r"[.,/\\-_]", " ", t)
     return re.sub(r"\s+", " ", t).strip()
 
-def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict], uzywaj_bazy: bool) -> tuple[str, str]:
-    kod_faktura_clean = kod_faktura.strip()
-    nazwa_faktura_clean = normalizuj_nazwe(nazwa_faktura)
-
-    if not uzywaj_bazy or not baza:
-        return kod_faktura_clean, ""
-
+def zbuduj_indeks_nazw(baza: list[dict]) -> dict:
+    """Buduje indeks 'znormalizowana nazwa -> kod' z katalogu PC-Market (rozwija warianty po '/')."""
     mapa_nazw = {}
     for t in baza:
         kod = t["kod_wew"]
@@ -160,6 +183,29 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
                 
                 if kategoria and kategoria != trzon:
                     mapa_nazw[f"{kategoria} {wariant_norm}"] = kod
+
+    return mapa_nazw
+
+def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict], uzywaj_bazy: bool,
+                         mapowania: dict = None, indeks: dict = None) -> tuple[str, str]:
+    kod_faktura_clean = kod_faktura.strip()
+    nazwa_faktura_clean = normalizuj_nazwe(nazwa_faktura)
+
+    if not uzywaj_bazy:
+        return kod_faktura_clean, ""
+
+    # 1. Ręczne reguły użytkownika (JSON) mają bezwzględne pierwszeństwo przed katalogiem.
+    if mapowania is None:
+        mapowania = wczytaj_baze_mapowan()
+    for nazwa_reguly, kod_reguly in mapowania.items():
+        if normalizuj_nazwe(str(nazwa_reguly)) == nazwa_faktura_clean:
+            return str(kod_reguly), kod_faktura_clean
+
+    if not baza:
+        return kod_faktura_clean, ""
+
+    # 2. Dopasowanie do katalogu PC-Market (dokładne, potem przybliżone).
+    mapa_nazw = indeks if indeks is not None else zbuduj_indeks_nazw(baza)
 
     if nazwa_faktura_clean in mapa_nazw:
         return mapa_nazw[nazwa_faktura_clean], kod_faktura_clean
@@ -310,9 +356,12 @@ def weryfikuj_sumy_netto(dane: dict) -> tuple[bool, str]:
 
     return True, f"Zgodność sumy netto: {suma_obliczona:.2f} zł"
 
-def kompresuj_do_base64(sciezka_pliku: str) -> str:
+def kompresuj_do_base64(sciezka_pliku: str, rozdzielczosc: int = 1800) -> str:
     with Image.open(sciezka_pliku) as img:
-        img.thumbnail((1800, 1800))
+        # Zdjęcia z telefonu przechowują obrót w EXIF. Podgląd w aplikacji go respektuje,
+        # a Pillow przy ponownym zapisie do JPEG go gubi - model dostałby obraz "na boku".
+        img = ImageOps.exif_transpose(img)
+        img.thumbnail((rozdzielczosc, rozdzielczosc), Image.Resampling.LANCZOS)
         if img.mode != "RGB":
             img = img.convert("RGB")
         
@@ -668,6 +717,7 @@ async def main(page: ft.Page):
         status_text.value = "Anulowano generowanie pliku EDI. Wybierz nowe zdjęcie."
         status_text.color = ft.Colors.RED_400
         btn_foto.disabled = False
+        btn_aparat.disabled = False
         page.update()
 
     dlg_weryfikacja = ft.AlertDialog(
@@ -776,6 +826,17 @@ async def main(page: ft.Page):
         value=konfig.get("use_cloud", True)
     )
 
+    dd_rozdzielczosc = ft.Dropdown(
+        label="Jakość skanu (Szybkość vs Tokeny)",
+        options=[
+            ft.dropdown.Option(key="1800", text="1800px (Najlepszy odczyt OCR)"),
+            ft.dropdown.Option(key="1400", text="1400px (Kompromis)"),
+            ft.dropdown.Option(key="1024", text="1024px (Szybciej, ale może gubić drobny druk)")
+        ],
+        value=str(konfig.get("image_resolution", 1800)),
+        dense=True
+    )
+
     chk_db_matching = ft.Checkbox(
         label="Dopasowuj do bazy PC-Market",
         value=konfig.get("use_db_matching", True)
@@ -799,8 +860,8 @@ async def main(page: ft.Page):
     txt_ip = ft.TextField(label="IP Serwera LM Studio", value=konfig.get("local_ip", "192.168.1.154"), dense=True)
     txt_port = ft.TextField(label="Port LM Studio", value=konfig.get("local_port", "1234"), dense=True)
 
-    lista_zapisanych_modeli = konfig.get("local_models_list", ["qwen/qwen3-vl-8b-instruct", "qwen3-vl-4b-instruct"])
-    aktualny_model = konfig.get("local_model", "qwen3-vl-4b-instruct")
+    lista_zapisanych_modeli = konfig.get("local_models_list", ["qwen/qwen3-vl-8b-instruct", "qwen3-vl-4b-instruct", "qwen3.5-9b"])
+    aktualny_model = konfig.get("local_model", "qwen3.5-9b")
 
     if aktualny_model and aktualny_model not in lista_zapisanych_modeli:
         lista_zapisanych_modeli.append(aktualny_model)
@@ -860,7 +921,6 @@ async def main(page: ft.Page):
     async def klik_budzenie_wol(e):
         try:
             loop = asyncio.get_running_loop()
-            # Pobieramy dane z UI
             target_ip = txt_ip.value.strip() or "192.168.1.154"
             target_mac = txt_mac.value.strip()
             
@@ -885,8 +945,12 @@ async def main(page: ft.Page):
         baza = wczytaj_baze_pcmarket(sciezka)
         mapa = wczytaj_baze_mapowan()
         nazwa = os.path.basename(sciezka)
-        lbl_status_bazy.value = f"Załadowano {len(baza)} poz. ({nazwa}) + {len(mapa)} własnych reguł"
-        lbl_status_bazy.color = ft.Colors.GREEN_300 if len(baza) > 0 else ft.Colors.ORANGE_300
+        if baza:
+            lbl_status_bazy.value = f"Katalog: {len(baza)} towarów ({nazwa}) | Własne reguły: {len(mapa)}"
+            lbl_status_bazy.color = ft.Colors.GREEN_300
+        else:
+            lbl_status_bazy.value = f"⚠️ Brak towarów w pliku bazy ({nazwa}) | Własne reguły: {len(mapa)}"
+            lbl_status_bazy.color = ft.Colors.ORANGE_300
         page.update()
 
     picker_bazy = ft.FilePicker()
@@ -903,6 +967,16 @@ async def main(page: ft.Page):
                 sciezka_zrodlowa = pliki[0].path
                 if sciezka_zrodlowa:
                     oryginalna_nazwa = os.path.basename(sciezka_zrodlowa)
+
+                    if not wczytaj_baze_pcmarket(sciezka_zrodlowa):
+                        pokaz_okno_bledu(
+                            "Nieprawidłowy plik bazy",
+                            f"W pliku {oryginalna_nazwa} nie znaleziono żadnych towarów. Oczekiwany układ: "
+                            "kolumny rozdzielone tabulatorem, nazwa w 1. kolumnie, kod w 3. "
+                            "Zachowano dotychczasową bazę."
+                        )
+                        return
+
                     docelowa_sciezka = os.path.join(KATALOG_DANYCH, oryginalna_nazwa)
                     try:
                         shutil.copyfile(sciezka_zrodlowa, docelowa_sciezka)
@@ -939,17 +1013,25 @@ async def main(page: ft.Page):
                 sciezka_zrodlowa = pliki[0].path
                 if sciezka_zrodlowa:
                     oryginalna_nazwa = os.path.basename(sciezka_zrodlowa)
-                    docelowa_sciezka = MAPA_FILE
-                    
-                    try:
-                        shutil.copyfile(sciezka_zrodlowa, docelowa_sciezka)
-                    except Exception:
-                        pass
+
+                    # Walidacja: błędny plik zgłasza wyjątek (pokaże go okno błędu) i nic nie nadpisuje.
+                    nowe_reguly = wczytaj_plik_mapowan_z_walidacja(sciezka_zrodlowa)
+                    dotychczasowe = wczytaj_baze_mapowan()
+
+                    # Kopia zapasowa i SCALENIE (reguły z pliku wygrywają przy tych samych nazwach),
+                    # zamiast kasowania wszystkiego, czego nie ma w wgrywanym pliku.
+                    if dotychczasowe and os.path.exists(MAPA_FILE):
+                        shutil.copyfile(MAPA_FILE, MAPA_FILE + ".bak")
+                    polaczone = {**dotychczasowe, **nowe_reguly}
+                    zapisz_baze_mapowan(polaczone)
 
                     odswiez_widok_mapowan()
                     odswiez_status_bazy()
                     
-                    status_text.value = f"Wczytano mapowania JSON ({oryginalna_nazwa})."
+                    status_text.value = (
+                        f"Wczytano mapowania ({oryginalna_nazwa}): {len(nowe_reguly)} reguł z pliku, "
+                        f"łącznie {len(polaczone)}."
+                    )
                     status_text.color = ft.Colors.CYAN_ACCENT
                     page.update()
         except Exception as err_mapa:
@@ -1052,7 +1134,7 @@ async def main(page: ft.Page):
     chk_cloud.on_change = przelacz_profil
 
     status_text = ft.Text(
-        "Wybierz zdjęcie faktury z galerii.",
+        "Wybierz zdjęcie faktury z galerii lub zrób zdjęcie aparatem.",
         size=13,
         color=ft.Colors.GREEN_ACCENT,
         text_align=ft.TextAlign.CENTER
@@ -1060,17 +1142,98 @@ async def main(page: ft.Page):
     pasek_postepu = ft.ProgressBar(visible=False, color=ft.Colors.GREEN_ACCENT)
     podglad_obrazu = ft.Image(src=PUSTY_OBRAZ, visible=False, fit="contain", height=240)
 
+    # --- APARAT I UPRAWNIENIA ---
+    try:
+        ph = ft.PermissionHandler()
+        page.overlay.append(ph)
+    except AttributeError:
+        ph = None
+
+    try:
+        kamera_obiektyw = ft.Camera(
+            expand=True,
+            resolution_preset=ft.CameraResolutionPreset.HIGH
+        )
+    except Exception:
+        kamera_obiektyw = ft.Text("Aparat nie jest wspierany.")
+
+    def on_foto_zrobione(e):
+        if e.data:
+            page.pop_dialog()
+            ustaw_nowy_obraz(e.data)
+
+    if hasattr(kamera_obiektyw, "on_image_captured"):
+        kamera_obiektyw.on_image_captured = on_foto_zrobione
+
+    async def klik_migawka(e):
+        try:
+            wynik = kamera_obiektyw.take_picture()
+            if hasattr(wynik, "__await__"):
+                wynik = await wynik
+            
+            # Jeśli funkcja zwraca bajty z flet-camera
+            if isinstance(wynik, bytes):
+                sciezka_zapisu = os.path.join(KATALOG_DANYCH, f"img_cam_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
+                with open(sciezka_zapisu, "wb") as f:
+                    f.write(wynik)
+                page.pop_dialog()
+                ustaw_nowy_obraz(sciezka_zapisu)
+            elif isinstance(wynik, str): # Jeśli zwraca bezpośrednio ścieżkę
+                page.pop_dialog()
+                ustaw_nowy_obraz(wynik)
+        except Exception as err:
+            pass # Fallback dla zdarzenia on_image_captured, jeśli take_picture nic nie zwraca bezpośrednio
+
+    btn_migawka = ft.FloatingActionButton(
+        icon=ft.Icons.CAMERA,
+        on_click=klik_migawka
+    )
+
+    dlg_aparat = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Zrób zdjęcie faktury"),
+        content=ft.Container(
+            content=kamera_obiektyw,
+            width=400,
+            height=500
+        ),
+        actions=[
+            btn_migawka,
+            ft.Button("Anuluj", on_click=lambda e: page.pop_dialog())
+        ],
+        actions_alignment=ft.MainAxisAlignment.CENTER
+    )
+
+    async def otworz_aparat(e):
+        try:
+            if ph:
+                status = await ph.check_permission_async(ft.PermissionType.CAMERA)
+                if status != ft.PermissionStatus.GRANTED:
+                    status = await ph.request_permission_async(ft.PermissionType.CAMERA)
+                
+                if status != ft.PermissionStatus.GRANTED:
+                    pokaz_okno_bledu("Uprawnienia", "Aplikacja wymaga dostępu do aparatu.")
+                    return
+        except Exception:
+            pass
+        
+        page.show_dialog(dlg_aparat)
+    # --- KONIEC APARATU ---
+
     def ustaw_stan_przycisku_foto(czy_ma_zdjecie: bool):
         if czy_ma_zdjecie:
             ikona_btn_foto.name = ft.Icons.SEND
             tekst_btn_foto.value = "Wyślij do analizy"
             btn_foto.style.bgcolor = ft.Colors.BLUE_700
+            btn_aparat.visible = False
         else:
             ikona_btn_foto.name = ft.Icons.PHOTO_LIBRARY
-            tekst_btn_foto.value = "Wybierz zdjęcie faktury"
+            tekst_btn_foto.value = "Wybierz z galerii"
             btn_foto.style.bgcolor = ft.Colors.GREEN_800
+            btn_aparat.visible = True
             
         btn_foto.disabled = False
+        btn_aparat.disabled = False
 
     def ustaw_nowy_obraz(sciezka: str):
         nowa_sciezka = os.path.join(KATALOG_DANYCH, f"img_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
@@ -1099,7 +1262,8 @@ async def main(page: ft.Page):
         wiersz_obrotu.visible = False
         ustaw_stan_przycisku_foto(False)
         btn_foto.disabled = False
-        status_text.value = "Zdjęcie usunięte. Wybierz nowe zdjęcie faktury."
+        btn_aparat.disabled = False
+        status_text.value = "Zdjęcie usunięte. Wybierz z galerii lub zrób nowe zdjęcie aparatem."
         status_text.color = ft.Colors.GREEN_ACCENT
         page.update()
 
@@ -1195,6 +1359,8 @@ async def main(page: ft.Page):
         konfig["local_model"] = dd_local_model.value or ""
         konfig["local_models_list"] = [opt.key for opt in dd_local_model.options]
         konfig["local_api_key"] = txt_local_api_key.value.strip()
+
+        konfig["image_resolution"] = int(dd_rozdzielczosc.value)
         
         zapisz_konfiguracje(konfig)
         page.pop_dialog()
@@ -1208,6 +1374,7 @@ async def main(page: ft.Page):
         content=ft.Column(
             [
                 chk_cloud,
+                dd_rozdzielczosc,
                 ft.Divider(),
                 kontener_gemini,
                 kontener_lokalny,
@@ -1266,7 +1433,6 @@ async def main(page: ft.Page):
 
         try:
             dopisz_log("Rozpoczęto analizę dokumentu.")
-            # Zawsze pobieramy aktualne dane z konfiguracji na dysku na wypadek zmian
             aktualny_konfig = wczytaj_konfiguracje()
             uzywa_chmury = aktualny_konfig.get("use_cloud", True)
             uzywa_bazy = aktualny_konfig.get("use_db_matching", True)
@@ -1277,6 +1443,7 @@ async def main(page: ft.Page):
             status_text.color = ft.Colors.ORANGE_ACCENT
             pasek_postepu.visible = True
             btn_foto.disabled = True
+            btn_aparat.disabled = True
             btn_ponow.visible = False
             btn_usun_zdjecie.visible = False
             btn_udostepnij.visible = False
@@ -1315,7 +1482,6 @@ async def main(page: ft.Page):
                         await asyncio.sleep(interwal_sprawdzania)
                         czas_miniony += interwal_sprawdzania
                         
-                        # Cykliczne dobijanie pakietami WoL, gdyby pierwszy zaginął na routerze
                         if czas_miniony % 30 == 0:
                             try:
                                 await loop.run_in_executor(None, wyslij_wol, mac_adres, ip_lokalne)
@@ -1330,9 +1496,10 @@ async def main(page: ft.Page):
                     if not serwer_zyje:
                         raise TimeoutError(f"Serwer pod adresem {ip_lokalne} nie uruchomił się w czasie {maks_czas_oczekiwania}s.")
             # --- KONIEC PROCEDURY WYBUDZANIA ---
-
+            
             dopisz_log("Przygotowywanie i kompresja obrazu...")
-            base64_image = await loop.run_in_executor(None, kompresuj_do_base64, sciezka_obrazu)
+            wymiar_obrazu = aktualny_konfig.get("image_resolution", 1800)
+            base64_image = await loop.run_in_executor(None, kompresuj_do_base64, sciezka_obrazu, wymiar_obrazu)
 
             prompt = (
                 "Jesteś precyzyjnym systemem OCR do faktur, specyfikacji mięsnych i dokumentów PZ. "
@@ -1390,7 +1557,7 @@ async def main(page: ft.Page):
                 port = aktualny_konfig.get("local_port", "1234").strip()
                 pelny_url = f"http://{ip}:{port}/v1/chat/completions"
                 klucz = aktualny_konfig.get("local_api_key", "").strip()
-                wybrany_model = aktualny_konfig.get("local_model", "qwen/qwen3-vl-8b-instruct").strip()
+                wybrany_model = aktualny_konfig.get("local_model", "qwen3.5-9b").strip()
 
                 naglowki = {"Content-Type": "application/json"}
                 if klucz:
@@ -1413,14 +1580,13 @@ async def main(page: ft.Page):
                     ],
                     "temperature": 0.0,
                     "max_tokens": 8192,
-                    "chat_template_kwargs": {"enable_thinking": False}}
-                
-                    
+                    "chat_template_kwargs": {"enable_thinking": False}
+                }
+
             max_prob = 4
             opoznienie_poczatkowe = 2.0
             odpowiedz = None
             
-            # W tym miejscu limit timeoutu dla HTTP. Samo połączenie TCP jest teraz szybkie (10s), ale czekanie na model pozostaje długie (300s).
             timeout_cfg = httpx.Timeout(10.0, read=300.0)
             
             status_text.value = f"Przetwarzanie dokumentu przez {nazwa_silnika}..."
@@ -1451,7 +1617,21 @@ async def main(page: ft.Page):
 
                 dopisz_log("Pobrano odpowiedź. Odkodowywanie JSON...")
                 dane_odp = odpowiedz.json()
-                odp_tekst = dane_odp["choices"][0]["message"]["content"].strip()
+                wybor = dane_odp["choices"][0]
+                # content bywa None, gdy model "przemyślał" cały limit tokenów i nie zdążył odpowiedzieć
+                odp_tekst = (wybor.get("message", {}).get("content") or "").strip()
+                powod_konca = wybor.get("finish_reason")
+
+                uzycie = dane_odp.get("usage") or {}
+                tokeny_rozumowania = (uzycie.get("completion_tokens_details") or {}).get("reasoning_tokens")
+                opis_tokenow = (
+                    f"Tokeny: wejście={uzycie.get('prompt_tokens', '?')}, "
+                    f"wyjście={uzycie.get('completion_tokens', '?')}"
+                )
+                if tokeny_rozumowania is not None:
+                    opis_tokenow += f" (w tym rozumowanie={tokeny_rozumowania})"
+                opis_tokenow += f", powód zakończenia={powod_konca}, obraz={wymiar_obrazu}px"
+                dopisz_log(opis_tokenow, ft.Colors.CYAN if powod_konca != "length" else ft.Colors.RED)
 
             dane = None
             blad_parsowania = ""
@@ -1471,6 +1651,12 @@ async def main(page: ft.Page):
             if dane is None:
                 dopisz_log(f"BŁĄD PARSOWANIA JSON: {blad_parsowania}", ft.Colors.RED)
                 dopisz_log(f"Zwrócony tekst przez model:\n{odp_tekst}", ft.Colors.ORANGE)
+                if powod_konca == "length":
+                    raise ValueError(
+                        f"Odpowiedź modelu została ucięta po osiągnięciu limitu {cialo_zapytania['max_tokens']} tokenów "
+                        f"(obraz {wymiar_obrazu}px). Zobacz w konsoli, czy model nie zapętlił się lub nie "
+                        f"zużył limitu na rozumowanie, i spróbuj większej rozdzielczości."
+                    )
                 raise ValueError(f"Błąd parsowania JSON ({blad_parsowania}). Sprawdź konsolę logów.")
 
             dopisz_log("Wstępne mapowanie do bazy...")
@@ -1478,10 +1664,16 @@ async def main(page: ft.Page):
             aktualna_baza_sciezka = pobierz_aktualna_sciezke_bazy(aktualny_konfig)
             baza_towarowa = wczytaj_baze_pcmarket(aktualna_baza_sciezka) if uzywa_bazy else []
 
+            mapowania_reczne = wczytaj_baze_mapowan()
+            indeks_nazw = zbuduj_indeks_nazw(baza_towarowa) if baza_towarowa else {}
+
             for poz in dane.get("pozycje", []):
                 nazwa = str(poz.get("nazwa", "")).strip().upper()
                 kod_faktura = str(poz.get("kod", "")).strip()
-                kod_dop, _ = dopasuj_towar_z_bazy(nazwa, kod_faktura, baza_towarowa, uzywa_bazy)
+                kod_dop, _ = dopasuj_towar_z_bazy(
+                    nazwa, kod_faktura, baza_towarowa, uzywa_bazy,
+                    mapowania=mapowania_reczne, indeks=indeks_nazw
+                )
                 poz["oryg_nazwa"] = nazwa
                 poz["kod_dopasowany"] = kod_dop
 
@@ -1518,6 +1710,7 @@ async def main(page: ft.Page):
             status_text.color = ft.Colors.RED_ACCENT
             pasek_postepu.visible = False
             btn_foto.disabled = False
+            btn_aparat.disabled = False
             czy_ma_foto = bool(aktualne_zdjecie["sciezka"])
             btn_ponow.visible = czy_ma_foto
             btn_usun_zdjecie.visible = czy_ma_foto
@@ -1548,7 +1741,7 @@ async def main(page: ft.Page):
             await otworz_galerie()
 
     ikona_btn_foto = ft.Icon(ft.Icons.PHOTO_LIBRARY)
-    tekst_btn_foto = ft.Text("Wybierz zdjęcie faktury")
+    tekst_btn_foto = ft.Text("Wybierz z galerii")
 
     btn_foto = ft.Button(
         content=ft.Row(
@@ -1564,6 +1757,23 @@ async def main(page: ft.Page):
         ),
         on_click=klik_glowny_przycisk
     )
+
+    btn_aparat = ft.Button(
+        content=ft.Row(
+            [ft.Icon(ft.Icons.CAMERA_ALT), ft.Text("Zrób zdjęcie")],
+            alignment=ft.MainAxisAlignment.CENTER
+        ),
+        height=55,
+        expand=True,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.BLUE_900,
+            color=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=8)
+        ),
+        on_click=otworz_aparat
+    )
+
+    wiersz_wyboru_zdjecia = ft.Row([btn_foto, btn_aparat], spacing=10)
 
     async def klik_ponow(e):
         if aktualne_zdjecie["sciezka"]:
@@ -1660,7 +1870,7 @@ async def main(page: ft.Page):
             [
                 pasek_tytulu,
                 ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-                btn_foto,
+                wiersz_wyboru_zdjecia,
                 pasek_postepu,
                 status_text,
                 btn_ponow,
