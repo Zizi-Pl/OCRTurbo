@@ -21,6 +21,5 @@ path = "."
 
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true
-"android.permission.CAMERA" = true
 "android.permission.READ_MEDIA_IMAGES" = true
 "android.permission.READ_EXTERNAL_STORAGE" = true
