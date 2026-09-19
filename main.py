@@ -1170,7 +1170,7 @@ async def main(page: ft.Page):
             sciezka = os.path.join(KATALOG_DANYCH, f"foto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
             with open(sciezka, "wb") as f:
                 f.write(dane_zdjecia)
-            zamknij_kazdy_dialog()
+            zamknij_dialog(None)
             ustaw_nowy_obraz(sciezka)
         except Exception as err:
             dopisz_log(f"Błąd migawki: {err}", ft.Colors.RED)
@@ -1210,7 +1210,7 @@ async def main(page: ft.Page):
 
             kamery = await asyncio.wait_for(kamera_obiektyw.get_available_cameras(), timeout=10)
             if not kamery:
-                zamknij_kazdy_dialog()
+                zamknij_dialog(None)
                 dopisz_log("Brak wykrytych kamer w urządzeniu.", ft.Colors.RED)
                 pokaz_okno_bledu("Brak aparatu", "Nie wykryto żadnego sensora kamery w urządzeniu.")
                 return
@@ -1232,7 +1232,7 @@ async def main(page: ft.Page):
             status_text.color = ft.Colors.AMBER_ACCENT
             page.update()
         except Exception as err:
-            zamknij_kazdy_dialog()
+            zamknij_dialog(None)
             dopisz_log(f"Błąd inicjalizacji kamery ({type(err).__name__}): {err}", ft.Colors.RED)
             pokaz_okno_bledu("Błąd aparatu", f"Nie udało się uruchomić podglądu kamery: {err}")
             
