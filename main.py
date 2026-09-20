@@ -281,7 +281,6 @@ def zbuduj_indeks_nazw(baza: list[dict]) -> dict:
                 if not wariant_norm:
                     continue
 
-                # Pierwszy wpis wygrywa, żeby kolizje nazw nie nadpisywały kodów po cichu.
                 klucz1 = f"{trzon} {wariant_norm}"
                 if klucz1 not in mapa_nazw:
                     mapa_nazw[klucz1] = kod
@@ -302,10 +301,6 @@ def zbuduj_indeks_bez_diakrytykow(indeks: dict) -> dict:
 def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict], uzywaj_bazy: bool,
                          mapowania: dict = None, indeks: dict = None,
                          indeks_bez_og: dict = None) -> tuple[str, str, str]:
-    """Zwraca (kod_pc_market, kod_z_faktury, pewnosc).
-
-    pewnosc: REGULA (ręczna reguła), DOKLADNE, ROZMYTE (do sprawdzenia), BRAK, ORYGINAL (dopasowanie wyłączone).
-    """
     kod_faktura_clean = str(kod_faktura or "").strip()
     nazwa_faktura_clean = normalizuj_nazwe(nazwa_faktura)
     nazwa_bez_og = usun_diakrytyki(nazwa_faktura_clean)
@@ -382,7 +377,6 @@ async def sprawdz_port_tcp(ip: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 def oczysc_odpowiedz_llm(surowe_dane) -> dict:
-    """Zamienia odpowiedź modelu na bezpieczną strukturę (bez None, tylko dict/list/str)."""
     if not isinstance(surowe_dane, dict):
         raise ValueError("Model zwrócił odpowiedź, która nie jest obiektem JSON.")
 
@@ -393,7 +387,6 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
         return v if isinstance(v, list) else []
 
     def _t(v, domyslna=""):
-        # Nie używamy "v or domyslna", bo liczbowe 0 (np. VAT 0) zostałoby zastąpione wartością domyślną.
         if v is None:
             return domyslna
         s = str(v).strip()
@@ -433,7 +426,6 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
     return dane
 
 def ostrzezenia_pozycji(poz: dict) -> list:
-    """Lista ostrzeżeń (nieblokujących) o wartościach, które mogły zostać źle odczytane."""
     ost = []
     if parsuj_vat(poz.get("vat")) is None:
         ost.append(f"VAT nierozpoznany ({poz.get('vat') or 'brak'}), do EDI trafi 5%")
@@ -473,7 +465,6 @@ def generuj_tekst_edi(dane: dict) -> str:
 
     for poz in pozycje:
         nazwa = str(poz.get("oryg_nazwa") or poz.get("nazwa") or "").strip().upper()
-        # Tylko kod przypisany w weryfikacji (kod PC-Market albo, przy wyłączonym dopasowaniu, kod z faktury).
         kod_glowny = str(poz.get("kod_dopasowany") or "").strip()
 
         vat_val = parsuj_vat(poz.get("vat"))
@@ -494,7 +485,6 @@ def generuj_tekst_edi(dane: dict) -> str:
     return "\n".join(linie) + "\n"
 
 def weryfikuj_sumy_netto(dane: dict) -> tuple[str, str]:
-    """Zwraca (status, opis); status: OK, BLAD albo BRAK_DANYCH (nie było z czym porównać)."""
     pozycje = [p for p in (dane.get("pozycje") or []) if isinstance(p, dict)]
     suma_obliczona = sum(parsuj_kwote(p.get("wartosc_netto")) for p in pozycje)
 
@@ -532,7 +522,6 @@ def kompresuj_do_base64(sciezka_pliku: str, rozdzielczosc: int = 1800) -> str:
         return base64.b64encode(bufor.getvalue()).decode("utf-8")
 
 def dopasuj_wszystkie_pozycje_w_tle(dane: dict, uzywa_bazy: bool, sciezka_bazy: str) -> tuple:
-    """Wolna operacja (baza + dopasowanie rozmyte); uruchamiana w wątku, żeby nie blokować interfejsu."""
     baza = wczytaj_baze_pcmarket(sciezka_bazy) if uzywa_bazy else []
 
     indeks = None
@@ -582,15 +571,11 @@ async def main(page: ft.Page):
             pass
 
     def bezpiecznie_otworz_dialog(dlg):
-        # 1) To samo okno jest już otwarte (np. podwójne kliknięcie): nic nie rób.
         if dlg in page._dialogs.controls and dlg.open:
             return
 
-        # 2) Zamknij ewentualne inne otwarte okno.
         zamknij_kazdy_dialog()
 
-        # 3) Okno zamknięte przez pop_dialog() zostaje na wewnętrznej liście Fleta do czasu
-        #    potwierdzenia przez klienta, a show_dialog() odrzuci je jako "already opened".
         if dlg in page._dialogs.controls:
             page._dialogs.controls.remove(dlg)
 
@@ -663,7 +648,6 @@ async def main(page: ft.Page):
 
     dlg_konsola = ft.AlertDialog(
         modal=True,
-
         title=ft.Text("Konsola systemowa (Logi)"),
         content=ft.Container(content=konsola_logow, width=400, height=350),
         actions=[
@@ -697,7 +681,6 @@ async def main(page: ft.Page):
 
     dlg_potwierdz_czyszczenie = ft.AlertDialog(
         modal=True,
-
         title=ft.Text("⚠️ Potwierdzenie usunięcia"),
         content=ft.Text(
             "Czy na pewno chcesz usunąć wszystkie wygenerowane pliki EDI oraz zdjęcia tymczasowe z katalogu aplikacji?\n\n"
@@ -787,7 +770,6 @@ async def main(page: ft.Page):
 
     dlg_baza_edycja = ft.AlertDialog(
         modal=True,
-
         title=ft.Text("📦 Baza i Edycja Powiązań"),
         content=ft.Column(
             [
@@ -915,7 +897,6 @@ async def main(page: ft.Page):
         info_sumy = stan_weryfikacji["info_sumy"]
         uzywa_bazy = stan_weryfikacji["uzywa_bazy"]
 
-        # Przy dopasowaniu do bazy każda pozycja musi mieć kod PC-Market.
         if uzywa_bazy:
             puste = [p for p in dane.get("pozycje", []) if not p.get("kod_dopasowany")]
             if puste:
@@ -996,7 +977,6 @@ async def main(page: ft.Page):
 
     dlg_weryfikacja = ft.AlertDialog(
         modal=True,
-
         title=ft.Text("Weryfikacja kodów z faktury"),
         content=ft.Container(
             content=ft.Column([
@@ -1079,7 +1059,6 @@ async def main(page: ft.Page):
 
     dlg_wyszukiwarka = ft.AlertDialog(
         modal=True,
-
         title=ft.Text("Baza PC-Market"),
         content=ft.Container(
             content=ft.Column([
@@ -1415,19 +1394,24 @@ async def main(page: ft.Page):
 
     # --- APARAT (flet-camera: tylko Android / iOS / Web) ---
     kamera_obiektyw = fc.Camera(expand=True)
+    
 
     def aparat_obslugiwany() -> bool:
         return bool(page.web) or page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
 
-    def awaryjnie_usun_dialog_aparatu():
-        # Camera rzuca wyjątek przy każdym update() na nieobsługiwanej platformie,
-        # więc okno usuwamy z listy bez wywoływania update().
+    async def zamknij_pelny_ekran_aparatu(e=None):
         try:
-            dlg_aparat.open = False
-            if dlg_aparat in page._dialogs.controls:
-                page._dialogs.controls.remove(dlg_aparat)
+            # Zwolnij sensor aparatu przed zamknięciem widoku
+            await kamera_obiektyw.dispose()
         except Exception:
             pass
+        
+        if len(page.views) > 1:
+            page.views.pop()
+            page.update()
+
+    # Obsługa gestu/przycisku „Wstecz” na telefonie
+    page.on_view_pop = lambda e: asyncio.create_task(zamknij_pelny_ekran_aparatu())
 
     async def klik_migawka(e):
         try:
@@ -1437,19 +1421,12 @@ async def main(page: ft.Page):
             sciezka = os.path.join(KATALOG_DANYCH, f"foto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
             with open(sciezka, "wb") as f:
                 f.write(dane_zdjecia)
-            
-            # Zamknij widok aparatu
+
             await zamknij_pelny_ekran_aparatu()
             ustaw_nowy_obraz(sciezka)
         except Exception as err:
             dopisz_log(f"Błąd migawki: {err}", ft.Colors.RED)
             pokaz_okno_bledu("Błąd aparatu", f"Nie udało się zrobić zdjęcia: {err}")
-
-   
-    async def zamknij_pelny_ekran_aparatu(e=None):
-        if len(page.views) > 1:
-            page.views.pop()
-            page.update()
 
     async def otworz_aparat(e):
         if not aparat_obslugiwany():
@@ -1459,32 +1436,39 @@ async def main(page: ft.Page):
             return
 
         try:
-            # Tworzymy pełnoekranowy widok z detektorem kliknięcia w dowolne miejsce
             widok_aparatu = ft.View(
                 route="/aparat",
                 controls=[
                     ft.Stack([
-                        # GestureDetector wychwytuje dotknięcie w dowolnym miejscu ekranu
                         ft.GestureDetector(
                             content=kamera_obiektyw,
                             on_tap=lambda ev: asyncio.create_task(klik_migawka(ev)),
                             expand=True
                         ),
-                        # Przycisk Anuluj w rogu ekranu, żeby dało się wyjść
                         ft.Container(
                             content=ft.Button(
-                                "Anuluj", 
+                                "Anuluj",
                                 style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE),
                                 on_click=lambda ev: asyncio.create_task(zamknij_pelny_ekran_aparatu(ev))
                             ),
                             top=40,
                             right=20
                         ),
-                        # Podpowiedź dla użytkownika na dole ekranu
                         ft.Container(
-                            content=ft.Text("Stuknij w dowolne miejsce, aby zrobić zdjęcie", color=ft.Colors.WHITE70, size=14),
+                            content=ft.Row(
+                                [
+                                    ft.Text(
+                                        "Stuknij w dowolne miejsce, aby zrobić zdjęcie",
+                                        color=ft.Colors.WHITE70,
+                                        size=14,
+                                        text_align=ft.TextAlign.CENTER
+                                    )
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER
+                            ),
                             bottom=30,
-                            alignment=ft.alignment.center
+                            left=0,
+                            right=0
                         )
                     ], expand=True)
                 ],
@@ -1673,7 +1657,6 @@ async def main(page: ft.Page):
 
     dlg_ustawienia = ft.AlertDialog(
         modal=True,
-
         title=ft.Text("⚙️ Ustawienia połączenia"),
         content=ft.Column(
             [
