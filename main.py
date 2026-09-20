@@ -1437,43 +1437,21 @@ async def main(page: ft.Page):
             sciezka = os.path.join(KATALOG_DANYCH, f"foto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
             with open(sciezka, "wb") as f:
                 f.write(dane_zdjecia)
-            zamknij_dialog(None)
+            
+            # Zamknij widok aparatu
+            await zamknij_pelny_ekran_aparatu()
             ustaw_nowy_obraz(sciezka)
         except Exception as err:
             dopisz_log(f"Błąd migawki: {err}", ft.Colors.RED)
             pokaz_okno_bledu("Błąd aparatu", f"Nie udało się zrobić zdjęcia: {err}")
 
-    btn_migawka = ft.FloatingActionButton(
-        icon=ft.Icons.CAMERA,
-        on_click=klik_migawka
-    )
-
-    dlg_aparat = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("Zrób zdjęcie faktury"),
-        content=ft.Container(
-            content=kamera_obiektyw,
-            width=500,
-            height=650,
-            bgcolor=ft.Colors.GREY_900,
-            border_radius=12,
-            border=ft.Border(
-                top=ft.BorderSide(2, ft.Colors.GREY_700),
-                bottom=ft.BorderSide(2, ft.Colors.GREY_700),
-                left=ft.BorderSide(2, ft.Colors.GREY_700),
-                right=ft.BorderSide(2, ft.Colors.GREY_700),
-            ),
-            padding=6
-        ),
-        actions=[
-            btn_migawka,
-            ft.Button("Anuluj", on_click=lambda e: page.pop_dialog())
-        ],
-        actions_alignment=ft.MainAxisAlignment.CENTER
-    )
+   
+    async def zamknij_pelny_ekran_aparatu(e=None):
+        if len(page.views) > 1:
+            page.views.pop()
+            page.update()
 
     async def otworz_aparat(e):
-        # Na Windowsie w ogóle nie otwieramy okna z kontrolką Camera.
         if not aparat_obslugiwany():
             status_text.value = "Aparat działa tylko na telefonie (Android/iOS). Użyj wyboru z galerii."
             status_text.color = ft.Colors.AMBER_ACCENT
@@ -1481,15 +1459,45 @@ async def main(page: ft.Page):
             return
 
         try:
-            dlg_aparat.content.width = min(page.width * 0.92, 650)
-            dlg_aparat.content.height = min(page.height * 0.82, 750)
-            
-            bezpiecznie_otworz_dialog(dlg_aparat)
+            # Tworzymy pełnoekranowy widok z detektorem kliknięcia w dowolne miejsce
+            widok_aparatu = ft.View(
+                route="/aparat",
+                controls=[
+                    ft.Stack([
+                        # GestureDetector wychwytuje dotknięcie w dowolnym miejscu ekranu
+                        ft.GestureDetector(
+                            content=kamera_obiektyw,
+                            on_tap=lambda ev: asyncio.create_task(klik_migawka(ev)),
+                            expand=True
+                        ),
+                        # Przycisk Anuluj w rogu ekranu, żeby dało się wyjść
+                        ft.Container(
+                            content=ft.Button(
+                                "Anuluj", 
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE),
+                                on_click=lambda ev: asyncio.create_task(zamknij_pelny_ekran_aparatu(ev))
+                            ),
+                            top=40,
+                            right=20
+                        ),
+                        # Podpowiedź dla użytkownika na dole ekranu
+                        ft.Container(
+                            content=ft.Text("Stuknij w dowolne miejsce, aby zrobić zdjęcie", color=ft.Colors.WHITE70, size=14),
+                            bottom=30,
+                            alignment=ft.alignment.center
+                        )
+                    ], expand=True)
+                ],
+                padding=0,
+                bgcolor=ft.Colors.BLACK
+            )
+
+            page.views.append(widok_aparatu)
+            page.update()
 
             kamery = await asyncio.wait_for(kamera_obiektyw.get_available_cameras(), timeout=10)
             if not kamery:
-                zamknij_dialog(None)
-                dopisz_log("Brak wykrytych kamer w urządzeniu.", ft.Colors.RED)
+                await zamknij_pelny_ekran_aparatu()
                 pokaz_okno_bledu("Brak aparatu", "Nie wykryto żadnego sensora kamery w urządzeniu.")
                 return
 
@@ -1497,23 +1505,16 @@ async def main(page: ft.Page):
                 (c for c in kamery if c.lens_direction == fc.CameraLensDirection.BACK),
                 kamery[0],
             )
-            # Limit dłuższy, bo przy pierwszym uruchomieniu system pyta o zgodę na aparat.
             await asyncio.wait_for(
                 kamera_obiektyw.initialize(wybrana, fc.ResolutionPreset.HIGH, enable_audio=False),
                 timeout=30,
             )
-            dopisz_log("Kamera zainicjalizowana pomyślnie.", ft.Colors.GREEN)
+            dopisz_log("Kamera pełnoekranowa zainicjalizowana.", ft.Colors.GREEN)
 
-        except ft.FletUnsupportedPlatformException:
-            awaryjnie_usun_dialog_aparatu()
-            status_text.value = "Aparat działa tylko na telefonie (Android/iOS)."
-            status_text.color = ft.Colors.AMBER_ACCENT
-            page.update()
         except Exception as err:
-            zamknij_dialog(None)
-            dopisz_log(f"Błąd inicjalizacji kamery ({type(err).__name__}): {err}", ft.Colors.RED)
-            pokaz_okno_bledu("Błąd aparatu", f"Nie udało się uruchomić podglądu kamery: {err}")
-
+            await zamknij_pelny_ekran_aparatu()
+            dopisz_log(f"Błąd aparatu: {err}", ft.Colors.RED)
+            pokaz_okno_bledu("Błąd aparatu", f"Nie udało się uruchomić aparatu: {err}")
     # --- KONIEC APARATU ---
 
     def ustaw_stan_przycisku_foto(czy_ma_zdjecie: bool):
