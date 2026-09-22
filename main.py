@@ -393,36 +393,48 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
         return s if s else domyslna
 
     dane = {}
-    dane["nr_dok"] = _t(surowe_dane.get("nr_dok"), "faktura")
-    dane["data"] = normalizuj_date(_t(surowe_dane.get("data"), datetime.now().strftime("%d.%m.%Y")))
+    
+    # Mapowanie krótkich kluczy na format aplikacji
+    dane["nr_dok"] = _t(surowe_dane.get("nr", surowe_dane.get("nr_dok")), "faktura")
+    dane["data"] = normalizuj_date(_t(surowe_dane.get("dt", surowe_dane.get("data")), datetime.now().strftime("%d.%m.%Y")))
 
-    wyst = _d(surowe_dane.get("wystawca"))
-    dane["wystawca"] = {"nazwa": _t(wyst.get("nazwa")), "nip": _t(wyst.get("nip"))}
+    wyst = _d(surowe_dane.get("w", surowe_dane.get("wystawca")))
+    dane["wystawca"] = {"nazwa": _t(wyst.get("n", wyst.get("nazwa"))), "nip": _t(wyst.get("nip"))}
 
-    odb = _d(surowe_dane.get("odbiorca"))
-    dane["odbiorca"] = {"nazwa": _t(odb.get("nazwa")), "nip": _t(odb.get("nip"))}
+    odb = _d(surowe_dane.get("o", surowe_dane.get("odbiorca")))
+    dane["odbiorca"] = {"nazwa": _t(odb.get("n", odb.get("nazwa"))), "nip": _t(odb.get("nip"))}
 
     pozycje = []
-    for p in _l(surowe_dane.get("pozycje")):
+    for p in _l(surowe_dane.get("p", surowe_dane.get("pozycje"))):
         if not isinstance(p, dict):
             continue
         pozycje.append({
-            "nazwa": _t(p.get("nazwa"), "POZYCJA BEZ NAZWY"),
-            "kod": _t(p.get("kod")),
-            "vat": _t(p.get("vat")),
-            "jm": _t(p.get("jm"), "kg"),
-            "ilosc": _t(p.get("ilosc")),
-            "cena_netto": _t(p.get("cena_netto")),
-            "wartosc_netto": _t(p.get("wartosc_netto")),
+            "nazwa": _t(p.get("n", p.get("nazwa")), "POZYCJA BEZ NAZWY"),
+            "kod": _t(p.get("k", p.get("kod"))),
+            "vat": _t(p.get("v", p.get("vat"))),
+            "jm": _t(p.get("j", p.get("jm")), "kg"),
+            "ilosc": _t(p.get("i", p.get("ilosc"))),
+            "cena_netto": _t(p.get("c", p.get("cena_netto"))),
+            "wartosc_netto": _t(p.get("w", p.get("wartosc_netto"))),
         })
 
     if not pozycje:
         raise ValueError("Model nie odnalazł żadnych pozycji towarowych na dokumencie.")
 
     dane["pozycje"] = pozycje
-    dane["suma_netto_dokument"] = _t(surowe_dane.get("suma_netto_dokument"))
-    dane["stawki"] = [s for s in _l(surowe_dane.get("stawki")) if isinstance(s, dict)]
-    dane["do_zaplaty"] = _t(surowe_dane.get("do_zaplaty"))
+    dane["suma_netto_dokument"] = _t(surowe_dane.get("sn", surowe_dane.get("suma_netto_dokument")))
+    
+    stawki = []
+    for s in _l(surowe_dane.get("s", surowe_dane.get("stawki"))):
+        if isinstance(s, dict):
+            stawki.append({
+                "vat": _t(s.get("v", s.get("vat"))),
+                "suma_netto": _t(s.get("sn", s.get("suma_netto"))),
+                "suma_vat": _t(s.get("sv", s.get("suma_vat")))
+            })
+    dane["stawki"] = stawki
+    
+    dane["do_zaplaty"] = _t(surowe_dane.get("dz", surowe_dane.get("do_zaplaty")))
     return dane
 
 def ostrzezenia_pozycji(poz: dict) -> list:
@@ -465,7 +477,8 @@ def generuj_tekst_edi(dane: dict) -> str:
 
     for poz in pozycje:
         nazwa = str(poz.get("oryg_nazwa") or poz.get("nazwa") or "").strip().upper()
-        kod_glowny = str(poz.get("kod_dopasowany") or "").strip()
+        # Automatyczne pobranie kodu z faktury, jeśli nie wybrano żadnego z bazy
+        kod_glowny = str(poz.get("kod_dopasowany") or poz.get("kod") or "").strip()
 
         vat_val = parsuj_vat(poz.get("vat"))
         vat = str(vat_val if vat_val is not None else 5)
@@ -897,19 +910,7 @@ async def main(page: ft.Page):
         info_sumy = stan_weryfikacji["info_sumy"]
         uzywa_bazy = stan_weryfikacji["uzywa_bazy"]
 
-        if uzywa_bazy:
-            puste = [p for p in dane.get("pozycje", []) if not p.get("kod_dopasowany")]
-            if puste:
-                wskazowka = ""
-                if not stan_weryfikacji["baza"]:
-                    wskazowka = "\n\nBaza towarów jest pusta: wczytaj plik bazy w ustawieniach albo wyłącz dopasowywanie do bazy."
-                pokaz_okno_bledu(
-                    "Nieprzypisane towary",
-                    f"Przed wygenerowaniem EDI każda pozycja musi mieć kod PC-Market. "
-                    f"Brakuje kodów dla {len(puste)} pozycji (czerwone na liście).{wskazowka}",
-                    powrot_do=dlg_weryfikacja
-                )
-                return
+        # Zabezpieczenie blokujące eksport z powodu pustych kodów zostało usunięte
 
         dopisz_log("Generowanie struktury pliku EDI z potwierdzonymi kodami...")
         tresc_edi = generuj_tekst_edi(dane)
@@ -1082,11 +1083,11 @@ async def main(page: ft.Page):
     dd_rozdzielczosc = ft.Dropdown(
         label="Jakość skanu (Szybkość vs Tokeny)",
         options=[
-            ft.dropdown.Option(key="1800", text="1800px (Najlepszy odczyt OCR)"),
-            ft.dropdown.Option(key="1400", text="1400px (Kompromis)"),
-            ft.dropdown.Option(key="1024", text="1024px (Szybciej, ale może gubić drobny druk)")
+            ft.dropdown.Option(key="2000", text="2000px (Podstawowa, najlepsza ostrość)"),
+            ft.dropdown.Option(key="1800", text="1800px (Kompromis)"),
+            ft.dropdown.Option(key="1400", text="1400px (Szybki, mały plik)")
         ],
-        value=str(konfig.get("image_resolution", 1800)),
+        value=str(konfig.get("image_resolution", 2000)),
         dense=True
     )
 
@@ -1807,28 +1808,28 @@ async def main(page: ft.Page):
                 "Jesteś precyzyjnym systemem OCR do faktur, specyfikacji mięsnych i dokumentów PZ. "
                 "Przepisz DOKŁADNIE dane ze zdjęcia dokumentu. Nie zmyślaj żadnych danych ani towarów!\n\n"
                 "Instrukcje:\n"
-                "1. Nagłówek: odczytaj numer dokumentu (nr_dok), datę oraz dane wystawcy i odbiorcy (NIP).\n"
-                "2. Tabela towarowa: Przepisz DOKŁADNIE każdy wiersz z tabeli:\n"
-                "   - nazwa: pełna nazwa towaru\n"
-                "   - kod: kod towaru / CN / Nr D-t\n"
-                "   - ilosc: waga / ilość\n"
-                "   - jm: jednostka miary (np. kg)\n"
-                "   - cena_netto: cena netto po rabacie\n"
-                "   - wartosc_netto: wartość netto pozycji\n"
-                "   - vat: stawka VAT (np. 5 lub 23)\n"
-                "3. Podsumowanie: odczytaj 'Razem netto' (suma_netto_dokument) oraz stawki VAT i do_zaplaty.\n\n"
-                "Zwróć TYLKO i WYŁĄCZNIE czysty obiekt JSON zgodny ze strukturą (bez żadnych dodatkowych znaczników, bez markdownu):\n"
+                "1. Nagłówek: odczytaj numer dokumentu (nr), datę (dt) oraz dane wystawcy (w) i odbiorcy (o).\n"
+                "2. Tabela towarowa: Przepisz DOKŁADNIE każdy wiersz z tabeli w skróconym formacie:\n"
+                "   - n: pełna nazwa towaru\n"
+                "   - k: kod towaru / CN / Nr D-t\n"
+                "   - i: waga / ilość\n"
+                "   - j: jednostka miary (np. kg)\n"
+                "   - c: cena netto po rabacie\n"
+                "   - w: wartość netto pozycji\n"
+                "   - v: stawka VAT (np. 5 lub 23)\n"
+                "3. Podsumowanie: odczytaj 'Razem netto' (sn) oraz stawki VAT (s) i do_zaplaty (dz).\n\n"
+                "Zwróć TYLKO i WYŁĄCZNIE czysty obiekt JSON ze skróconymi kluczami (bez dodatkowych znaczników, bez markdownu):\n"
                 "{\n"
-                "  \"nr_dok\": \"...\",\n"
-                "  \"data\": \"DD.MM.RRRR\",\n"
-                "  \"wystawca\": {\"nazwa\": \"...\", \"nip\": \"...\"},\n"
-                "  \"odbiorca\": {\"nazwa\": \"...\", \"nip\": \"...\"},\n"
-                "  \"pozycje\": [\n"
-                "    {\"nazwa\": \"...\", \"kod\": \"...\", \"vat\": \"5\", \"jm\": \"kg\", \"ilosc\": \"0.000\", \"cena_netto\": \"0.00\", \"wartosc_netto\": \"0.00\"}\n"
+                "  \"nr\": \"...\",\n"
+                "  \"dt\": \"DD.MM.RRRR\",\n"
+                "  \"w\": {\"n\": \"...\", \"nip\": \"...\"},\n"
+                "  \"o\": {\"n\": \"...\", \"nip\": \"...\"},\n"
+                "  \"p\": [\n"
+                "    {\"n\": \"...\", \"k\": \"...\", \"v\": \"5\", \"j\": \"kg\", \"i\": \"0.000\", \"c\": \"0.00\", \"w\": \"0.00\"}\n"
                 "  ],\n"
-                "  \"suma_netto_dokument\": \"0.00\",\n"
-                "  \"stawki\": [{\"vat\": \"5\", \"suma_netto\": \"0.00\", \"suma_vat\": \"0.00\"}],\n"
-                "  \"do_zaplaty\": \"0.00\"\n"
+                "  \"sn\": \"0.00\",\n"
+                "  \"s\": [{\"v\": \"5\", \"sn\": \"0.00\", \"sv\": \"0.00\"}],\n"
+                "  \"dz\": \"0.00\"\n"
                 "}"
             )
 
@@ -1881,7 +1882,7 @@ async def main(page: ft.Page):
                         }
                     ],
                     "temperature": 0.0,
-                    "max_tokens": 8192,
+                    #"max_tokens": 8192,
                     "chat_template_kwargs": {"enable_thinking": False}
                 }
 
