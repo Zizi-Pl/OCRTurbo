@@ -818,10 +818,121 @@ async def main(page: ft.Page):
         "indeks_edytowany": -1
     }
 
+    # Etykieta nagłówka z podsumowaniem (liczba pozycji, suma, różnica)
+    lbl_podsumowanie_weryfikacji = ft.Text("", size=12, weight=ft.FontWeight.BOLD)
     lista_pozycji_weryfikacji = ft.ListView(expand=True, spacing=10, height=350)
+
+    # --- OKNO EDYCJI WARTOŚCI POZYCJI (ILOŚĆ, CENA, WARTOŚĆ, VAT, JM) ---
+    txt_edycja_jm = ft.TextField(label="JM (np. kg, szt, op)", dense=True, expand=True)
+
+    def ustaw_szybka_jm(wartosc: str):
+        txt_edycja_jm.value = wartosc
+        try:
+            txt_edycja_jm.update()
+        except Exception:
+            page.update()
+
+    btn_jm_kg = ft.Button("kg", on_click=lambda e: ustaw_szybka_jm("kg"), style=ft.ButtonStyle(padding=5))
+    btn_jm_szt = ft.Button("szt", on_click=lambda e: ustaw_szybka_jm("szt"), style=ft.ButtonStyle(padding=5))
+    btn_jm_op = ft.Button("op", on_click=lambda e: ustaw_szybka_jm("op"), style=ft.ButtonStyle(padding=5))
+
+    wiersz_wyboru_jm = ft.Row(
+        [
+            txt_edycja_jm,
+            btn_jm_kg,
+            btn_jm_szt,
+            btn_jm_op
+        ],
+        spacing=6,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER
+    )
+
+    txt_edycja_ilosc = ft.TextField(label="Ilość", dense=True)
+    txt_edycja_cena = ft.TextField(label="Cena netto", dense=True)
+    txt_edycja_wartosc = ft.TextField(label="Wartość netto", dense=True)
+    txt_edycja_vat = ft.TextField(label="Stawka VAT (np. 5, 8, 23)", dense=True)
+
+    def otworz_edycje_wartosci(idx):
+        stan_weryfikacji["indeks_edytowany"] = idx
+        poz = stan_weryfikacji["dane"]["pozycje"][idx]
+        txt_edycja_jm.value = str(poz.get("jm") or "kg").strip().lower().rstrip(".")
+        txt_edycja_ilosc.value = str(poz.get("ilosc") or "")
+        txt_edycja_cena.value = str(poz.get("cena_netto") or "")
+        txt_edycja_wartosc.value = str(poz.get("wartosc_netto") or "")
+        txt_edycja_vat.value = str(poz.get("vat") or "")
+
+        bezpiecznie_otworz_dialog(dlg_edycja_wartosci)
+
+    def przelicz_wartosc_w_locie(e):
+        il = parsuj_liczbe(txt_edycja_ilosc.value)
+        cn = parsuj_liczbe(txt_edycja_cena.value)
+        if il is not None and cn is not None:
+            txt_edycja_wartosc.value = f"{il * cn:.2f}"
+            try:
+                txt_edycja_wartosc.update()
+            except Exception:
+                page.update()
+
+    txt_edycja_ilosc.on_change = przelicz_wartosc_w_locie
+    txt_edycja_cena.on_change = przelicz_wartosc_w_locie
+
+    def zapisz_edycje_wartosci(e):
+        idx = stan_weryfikacji["indeks_edytowany"]
+        if idx >= 0 and stan_weryfikacji["dane"]:
+            poz = stan_weryfikacji["dane"]["pozycje"][idx]
+            
+            # Sanityzacja jednostki miary
+            surowa_jm = str(txt_edycja_jm.value or "kg").strip().lower().rstrip(".")
+            poz["jm"] = surowa_jm if surowa_jm else "kg"
+            
+            poz["ilosc"] = txt_edycja_ilosc.value.strip()
+            poz["cena_netto"] = txt_edycja_cena.value.strip()
+            poz["wartosc_netto"] = txt_edycja_wartosc.value.strip()
+            poz["vat"] = txt_edycja_vat.value.strip()
+
+            # Odświeżenie ostrzeżeń dla korygowanej pozycji
+            poz["ostrzezenia"] = ostrzezenia_pozycji(poz)
+
+            # Przeliczenie sum globalnych dokumentu
+            status_sum, info_sum = weryfikuj_sumy_netto(stan_weryfikacji["dane"])
+            stan_weryfikacji["status_sum"] = status_sum
+            stan_weryfikacji["info_sumy"] = info_sum
+
+        odswiez_weryfikacje()
+        bezpiecznie_otworz_dialog(dlg_weryfikacja)
+
+    def zamknij_edycje_wartosci(e):
+        bezpiecznie_otworz_dialog(dlg_weryfikacja)
+
+    dlg_edycja_wartosci = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("✏️ Korekta pozycji z faktury"),
+        content=ft.Column(
+            [
+                ft.Text("Jednostka miary (wpisz lub kliknij):", size=12, color=ft.Colors.GREY_400),
+                wiersz_wyboru_jm,
+                txt_edycja_ilosc,
+                txt_edycja_cena,
+                txt_edycja_wartosc,
+                txt_edycja_vat
+            ],
+            tight=True,
+            spacing=8,
+            width=320
+        ),
+        actions=[
+            ft.Button("Anuluj", on_click=zamknij_edycje_wartosci),
+            ft.Button(
+                "Zapisz",
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE),
+                on_click=zapisz_edycje_wartosci
+            )
+        ]
+    )
 
     def klik_usun_przypisanie(idx):
         if idx >= 0 and stan_weryfikacji["dane"]:
+            stan_weryfikacji["indeks_edytowany"] = idx
             poz = stan_weryfikacji["dane"]["pozycje"][idx]
             poz["kod_dopasowany"] = ""
             poz["pewnosc"] = "BRAK"
@@ -835,11 +946,39 @@ async def main(page: ft.Page):
 
             odswiez_weryfikacje()
 
+    def aktualizuj_pasek_podsumowania():
+        if not stan_weryfikacji["dane"]:
+            lbl_podsumowanie_weryfikacji.value = ""
+            return
+
+        pozycje = stan_weryfikacji["dane"].get("pozycje") or []
+        suma_obliczona = sum(parsuj_kwote(p.get("wartosc_netto")) for p in pozycje)
+        suma_odczytana = parsuj_kwote(stan_weryfikacji["dane"].get("suma_netto_dokument"))
+
+        if suma_odczytana <= 0.0:
+            stawki = stan_weryfikacji["dane"].get("stawki") or []
+            suma_odczytana = sum(parsuj_kwote(s.get("suma_netto")) for s in stawki)
+
+        tekst = f"📦 Pozycji PZ: {len(pozycje)} | Suma: {suma_obliczona:.2f} zł"
+        if suma_odczytana > 0:
+            roznica = abs(suma_obliczona - suma_odczytana)
+            if roznica <= 0.15:
+                tekst += f" (Zgodna z fakturą: {suma_odczytana:.2f} zł)"
+                lbl_podsumowanie_weryfikacji.color = ft.Colors.GREEN_400
+            else:
+                tekst += f"\n⚠️ Faktura: {suma_odczytana:.2f} zł | Różnica: {roznica:.2f} zł"
+                lbl_podsumowanie_weryfikacji.color = ft.Colors.AMBER_400
+        else:
+            lbl_podsumowanie_weryfikacji.color = ft.Colors.CYAN_300
+
+        lbl_podsumowanie_weryfikacji.value = tekst
+
     def odswiez_weryfikacje():
         lista_pozycji_weryfikacji.controls.clear()
         if not stan_weryfikacji["dane"]:
             return
 
+        aktualizuj_pasek_podsumowania()
         mapa_kod_nazwa = {t["kod_wew"]: t["nazwa"] for t in stan_weryfikacji["baza"]}
 
         for i, poz in enumerate(stan_weryfikacji["dane"].get("pozycje", [])):
@@ -865,10 +1004,23 @@ async def main(page: ft.Page):
             else:
                 tekst_kodu = ft.Text("BRAK DOPASOWANIA (Wybierz ręcznie!)", size=12, color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD)
 
+            # Podgląd ilości i wartości pozycji
+            ilosc_str = poz.get("ilosc") or "0"
+            jm_str = poz.get("jm") or "kg"
+            wart_str = poz.get("wartosc_netto") or "0.00"
+            vat_str = poz.get("vat") or "5"
+            tekst_wartosci = ft.Text(f"{ilosc_str} {jm_str} × ... = {wart_str} zł netto (VAT {vat_str}%)", size=11, color=ft.Colors.GREY_400)
+
             przyciski_akcji = [
                 ft.IconButton(
+                    icon=ft.Icons.EDIT_OUTLINED,
+                    tooltip="Popraw ilość/wartość",
+                    icon_color=ft.Colors.AMBER_400,
+                    on_click=lambda e, idx=i: otworz_edycje_wartosci(idx)
+                ),
+                ft.IconButton(
                     icon=ft.Icons.SEARCH,
-                    tooltip="Wyszukaj i zmień",
+                    tooltip="Wyszukaj i zmień kod",
                     icon_color=ft.Colors.BLUE_400,
                     on_click=lambda e, idx=i: otworz_wyszukiwarke(idx)
                 )
@@ -886,15 +1038,17 @@ async def main(page: ft.Page):
 
             kolumna_tekstow = [
                 ft.Text(nazwa, weight=ft.FontWeight.BOLD, size=13),
-                tekst_kodu
+                tekst_kodu,
+                tekst_wartosci
             ]
             for ostrzezenie in poz.get("ostrzezenia", []):
                 kolumna_tekstow.append(ft.Text(f"⚠️ {ostrzezenie}", size=11, color=ft.Colors.AMBER_300))
 
             lista_pozycji_weryfikacji.controls.append(
                 ft.Container(
+                    key=f"poz_{i}",
                     content=ft.Row([
-                        ft.Column(kolumna_tekstow, expand=True),
+                        ft.Column(kolumna_tekstow, expand=True, spacing=2),
                         ft.Row(przyciski_akcji, spacing=0)
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     padding=8,
@@ -902,15 +1056,22 @@ async def main(page: ft.Page):
                     border_radius=8
                 )
             )
+
         page.update()
+
+        # Powrót do edytowanego elementu, by lista nie uciekała na samą górę
+        idx = stan_weryfikacji.get("indeks_edytowany", -1)
+        if idx >= 0:
+            try:
+                lista_pozycji_weryfikacji.scroll_to(key=f"poz_{idx}", duration=150)
+            except Exception:
+                pass
 
     async def zapisz_edi_i_zakoncz():
         dane = stan_weryfikacji["dane"]
         status_sum = stan_weryfikacji["status_sum"]
         info_sumy = stan_weryfikacji["info_sumy"]
         uzywa_bazy = stan_weryfikacji["uzywa_bazy"]
-
-        # Zabezpieczenie blokujące eksport z powodu pustych kodów zostało usunięte
 
         dopisz_log("Generowanie struktury pliku EDI z potwierdzonymi kodami...")
         tresc_edi = generuj_tekst_edi(dane)
@@ -981,11 +1142,12 @@ async def main(page: ft.Page):
         title=ft.Text("Weryfikacja kodów z faktury"),
         content=ft.Container(
             content=ft.Column([
-                ft.Text("Zielony: pewne | Żółty: rozmyte (sprawdź) | Czerwony: brak. Kliknij lupę, aby poprawić.", size=12, color=ft.Colors.GREY_400),
+                lbl_podsumowanie_weryfikacji,
+                ft.Divider(height=1, color=ft.Colors.GREY_800),
                 lista_pozycji_weryfikacji
             ], tight=True),
             width=380,
-            height=450
+            height=460
         ),
         actions=[
             ft.Button("Anuluj", color=ft.Colors.RED_400, on_click=klik_anuluj_weryfikacje),
@@ -1656,6 +1818,159 @@ async def main(page: ft.Page):
         status_text.color = ft.Colors.CYAN_ACCENT
         page.update()
 
+        
+        # --- EKSPORT I IMPORT PAKIETU KONFIGURACJI I MAPOWAŃ ---
+    picker_backup = ft.FilePicker()
+    page.services.append(picker_backup)
+
+    async def eksportuj_pelny_backup(e):
+        try:
+            aktualna_konf = copy.deepcopy(konfig)
+            aktualna_konf["use_cloud"] = chk_cloud.value
+            aktualna_konf["use_db_matching"] = chk_db_matching.value
+            aktualna_konf["gemini_api_key"] = txt_gemini_key.value.strip()
+            aktualna_konf["gemini_model"] = txt_gemini_model.value.strip() or "gemini-3.6-flash"
+            aktualna_konf["wol_mac"] = txt_mac.value.strip()
+            aktualna_konf["local_ip"] = txt_ip.value.strip()
+            aktualna_konf["local_port"] = txt_port.value.strip()
+            aktualna_konf["local_model"] = dd_local_model.value or ""
+            aktualna_konf["local_models_list"] = [opt.key for opt in dd_local_model.options]
+            aktualna_konf["local_api_key"] = txt_local_api_key.value.strip()
+            aktualna_konf["image_resolution"] = int(dd_rozdzielczosc.value)
+
+            mapa = wczytaj_baze_mapowan()
+
+            pakiet_danych = {
+                "wersja": "1.0",
+                "data_utworzenia": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "konfiguracja": aktualna_konf,
+                "mapowania": mapa
+            }
+
+            nazwa_pliku = f"backup_ocrlmm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            sciezka_backup = os.path.join(KATALOG_DANYCH, nazwa_pliku)
+
+            with open(sciezka_backup, "w", encoding="utf-8") as f:
+                json.dump(pakiet_danych, f, indent=4, ensure_ascii=False)
+
+            if hasattr(serwis_udostepniania, "share_files"):
+                try:
+                    await serwis_udostepniania.share_files(
+                        [ft.ShareFile.from_path(sciezka_backup)],
+                        text="Kopia zapasowa ocrLmm (Konfiguracja + Reguły)"
+                    )
+                except Exception:
+                    await serwis_udostepniania.share_files([sciezka_backup])
+            else:
+                pokaz_okno_bledu("Informacja", f"Zapisano plik kopii: {sciezka_backup}", powrot_do=dlg_ustawienia)
+
+            status_text.value = f"Wyeksportowano kopię zapasową: {nazwa_pliku}"
+            status_text.color = ft.Colors.GREEN_ACCENT
+            page.update()
+
+        except Exception as err_exp:
+            dopisz_log(f"Błąd eksportu backupu: {err_exp}", ft.Colors.RED)
+            pokaz_okno_bledu("Błąd eksportu", str(err_exp), powrot_do=dlg_ustawienia)
+
+    async def importuj_pelny_backup(e):
+        try:
+            pliki = await picker_backup.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["json"]
+            )
+            if not pliki or len(pliki) == 0:
+                return
+
+            sciezka_zrodlowa = pliki[0].path
+            if not sciezka_zrodlowa or not os.path.exists(sciezka_zrodlowa):
+                return
+
+            with open(sciezka_zrodlowa, "r", encoding="utf-8-sig") as f:
+                dane_backupu = json.load(f)
+
+            if not isinstance(dane_backupu, dict):
+                raise ValueError("Plik nie zawiera poprawnego obiektu JSON.")
+
+            nowa_konf = dane_backupu.get("konfiguracja")
+            nowe_mapy = dane_backupu.get("mapowania")
+
+            # Obsługa sytuacji, gdy wybrano zwykły stary plik samej konfiguracji
+            if nowa_konf is None and "gemini_model" in dane_backupu:
+                nowa_konf = dane_backupu
+
+            if not isinstance(nowa_konf, dict):
+                raise ValueError("Brak sekcji 'konfiguracja' w pliku backupu.")
+
+            # Zapis i synchronizacja konfiguracji w pamięci i pliku
+            konfig.update(nowa_konf)
+            zapisz_konfiguracje(konfig)
+
+            # Aktualizacja kontrolek formularza ustawień w locie
+            chk_cloud.value = konfig.get("use_cloud", True)
+            chk_db_matching.value = konfig.get("use_db_matching", True)
+            dd_rozdzielczosc.value = str(konfig.get("image_resolution", 1800))
+            txt_gemini_key.value = konfig.get("gemini_api_key", "")
+            txt_gemini_model.value = konfig.get("gemini_model", "gemini-3.6-flash")
+            txt_mac.value = konfig.get("wol_mac", "")
+            txt_ip.value = konfig.get("local_ip", "192.168.1.154")
+            txt_port.value = konfig.get("local_port", "1234")
+            txt_local_api_key.value = konfig.get("local_api_key", "")
+
+            # Aktualizacja listy modeli
+            modele = konfig.get("local_models_list", [])
+            dd_local_model.options = [ft.dropdown.Option(m) for m in modele]
+            dd_local_model.value = konfig.get("local_model", "")
+
+            przelacz_profil(None)
+
+            # Aktualizacja mapowań towarów (jeśli obecne w pliku)
+            licznik_map = 0
+            if isinstance(nowe_mapy, dict) and nowe_mapy:
+                poprzednie = wczytaj_baze_mapowan()
+                poprzednie.update(nowe_mapy)
+                zapisz_baze_mapowan(poprzednie)
+                licznik_map = len(nowe_mapy)
+                odswiez_widok_mapowan()
+
+            odswiez_status_bazy()
+
+            status_text.value = f"Wczytano backup: zaktualizowano ustawienia i {licznik_map} reguł."
+            status_text.color = ft.Colors.GREEN_ACCENT
+            page.update()
+
+            pokaz_okno_bledu(
+                "Kopia przywrócona",
+                f"Pomyślnie zaimportowano ustawienia aplikacji oraz {licznik_map} przypisań towarów.",
+                powrot_do=dlg_ustawienia
+            )
+
+        except Exception as err_imp:
+            dopisz_log(f"Błąd importu backupu: {err_imp}", ft.Colors.RED)
+            pokaz_okno_bledu("Błąd importu", str(err_imp), powrot_do=dlg_ustawienia)
+
+    btn_eksport_backup = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.UPLOAD), ft.Text("Eksportuj kopię (wszystko w jednym)")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_800, color=ft.Colors.WHITE),
+        on_click=eksportuj_pelny_backup
+    )
+
+    btn_import_backup = ft.Button(
+        content=ft.Row([ft.Icon(ft.Icons.DOWNLOAD), ft.Text("Importuj kopię z pliku (.json)")], alignment=ft.MainAxisAlignment.CENTER),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.INDIGO_800, color=ft.Colors.WHITE),
+        on_click=importuj_pelny_backup
+    )
+
+    kontener_kopia_zapasowa = ft.Column(
+        [
+            ft.Text("Kopia zapasowa (Ustawienia + Reguły):", weight=ft.FontWeight.BOLD, color=ft.Colors.TEAL_300),
+            btn_eksport_backup,
+            btn_import_backup
+        ],
+        spacing=6
+    )
+        
+
     dlg_ustawienia = ft.AlertDialog(
         modal=True,
         title=ft.Text("⚙️ Ustawienia połączenia"),
@@ -1667,7 +1982,9 @@ async def main(page: ft.Page):
                 kontener_gemini,
                 kontener_lokalny,
                 ft.Divider(),
-                kontener_baza_pcmarket
+                kontener_baza_pcmarket, # <-- PRZYCISK WGROMADZENIA BAZY TXT I MAPOWAŃ
+                ft.Divider(),
+                kontener_kopia_zapasowa # <-- KOPIA ZAPASOWA
             ],
             tight=True, scroll=ft.ScrollMode.AUTO, spacing=10
         ),
@@ -1805,20 +2122,26 @@ async def main(page: ft.Page):
             base64_image = await loop.run_in_executor(None, kompresuj_do_base64, sciezka_obrazu, wymiar_obrazu)
 
             prompt = (
-                "Jesteś precyzyjnym systemem OCR do faktur, specyfikacji mięsnych i dokumentów PZ. "
-                "Przepisz DOKŁADNIE dane ze zdjęcia dokumentu. Nie zmyślaj żadnych danych ani towarów!\n\n"
+                "Jesteś precyzyjnym systemem OCR do polskich faktur i specyfikacji spożywczych (wędliny, mięso, nabiał, pieczywo). "
+                "Przepisz DOKŁADNIE dane ze zdjęcia dokumentu. Nie zmyślaj danych!\n\n"
                 "Instrukcje:\n"
-                "1. Nagłówek: odczytaj numer dokumentu (nr), datę (dt) oraz dane wystawcy (w) i odbiorcy (o).\n"
-                "2. Tabela towarowa: Przepisz DOKŁADNIE każdy wiersz z tabeli w skróconym formacie:\n"
-                "   - n: pełna nazwa towaru\n"
-                "   - k: kod towaru / CN / Nr D-t\n"
-                "   - i: waga / ilość\n"
-                "   - j: jednostka miary (np. kg)\n"
-                "   - c: cena netto po rabacie\n"
-                "   - w: wartość netto pozycji\n"
-                "   - v: stawka VAT (np. 5 lub 23)\n"
+                "1. Nagłówek:\n"
+                "   - nr: odczytaj pełny numer dokumentu (faktury / PZ)\n"
+                "   - dt: data wystawienia/sprzedaży w formacie DD.MM.RRRR\n"
+                "   - w, o: nazwa oraz NIP (same cyfry, bez przedrostka 'PL' i myślników) wystawcy (w) i odbiorcy (o)\n\n"
+                "2. Tabela towarowa (Przepisz DOKŁADNIE każdy wiersz towarowy):\n"
+                "   - n: pełna nazwa towaru (dokładnie jak na dokumencie)\n"
+                "   - k: kod kreskowy EAN (np. 590...) lub indeks / nr artykułu\n"
+                "   - j: jednostka miary ('kg', 'szt', 'op')\n"
+                "   - i: ilość/waga:\n"
+                "        * Jeśli j='szt': ilość MUSI być liczbą całkowitą (np. 1, 10, 24)\n"
+                "        * Jeśli j='kg': ilość może być ułamkiem dziesiętnym z kropką (np. 1.450)\n"
+                "   - c: ostateczna cena jednostkowa netto PO RABACIE (jeśli na dokumencie jest rabat, podaj cenę po uwzględnieniu upustu)\n"
+                "   - w: wartość netto pozycji (ilość × cena netto po rabacie)\n"
+                "   - v: stawka VAT (oczekiwane: 0, 5, 8, 23, zw, np)\n\n"
                 "3. Podsumowanie: odczytaj 'Razem netto' (sn) oraz stawki VAT (s) i do_zaplaty (dz).\n\n"
-                "Zwróć TYLKO i WYŁĄCZNIE czysty obiekt JSON ze skróconymi kluczami (bez dodatkowych znaczników, bez markdownu):\n"
+                "Ważne: Jako separatora dziesiętnego używaj kropki (nie przecinka).\n\n"
+                "Zwróć TYLKO i WYŁĄCZNIE czysty obiekt JSON (bez znaczników markdown, bez ```json):\n"
                 "{\n"
                 "  \"nr\": \"...\",\n"
                 "  \"dt\": \"DD.MM.RRRR\",\n"
