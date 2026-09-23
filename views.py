@@ -642,7 +642,7 @@ class ViewsManager:
             self.page.update()
 
     # =========================================================================
-    # 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, KADROWANIE DOTYKOWE, DIALOG WYNIKÓW)
+    # 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, KADROWANIE, FULLSCREEN, DIALOG WYNIKÓW)
     # =========================================================================
     def _inicjalizuj_modul_dokument(self):
         self.SZEROKOSC_DOK = 320
@@ -669,7 +669,7 @@ class ViewsManager:
         self.maska_dok_lewo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, left=0, width=0)
         self.maska_dok_prawo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, right=0, width=0)
 
-        # Środek ramki – chwytanie i przesuwanie całego kadru
+        # Środek ramki – przesuwanie całego kadru
         self.strefa_srodka_dok = ft.GestureDetector(
             content=ft.Container(
                 border=ft.Border.all(2.0, ft.Colors.BLUE_ACCENT),
@@ -714,10 +714,24 @@ class ViewsManager:
         self.status_dok = ft.Text("Zrób zdjęcie lub wybierz dokument z galerii.", size=12, color=ft.Colors.BLUE_200, text_align=ft.TextAlign.CENTER)
         self.pasek_dok = ft.ProgressBar(visible=False, color=ft.Colors.BLUE_ACCENT)
 
+        # Wiersz z obrotami oraz przyciskiem pełnego podglądu zdjęcia
         self.wiersz_obrotu_dok = ft.Row([
-            ft.Button("Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=44, expand=True, style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)), on_click=lambda e: asyncio.create_task(self.obroc_dok(90))),
-            ft.Button("Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=44, expand=True, style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)), on_click=lambda e: asyncio.create_task(self.obroc_dok(-90)))
-        ], spacing=10, visible=False)
+            ft.Button(
+                "W lewo", icon=ft.Icons.ROTATE_LEFT, height=44, expand=True,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: asyncio.create_task(self.obroc_dok(90))
+            ),
+            ft.IconButton(
+                icon=ft.Icons.FULLSCREEN, icon_color=ft.Colors.BLUE_ACCENT, icon_size=26,
+                tooltip="Pełny podgląd zaznaczenia",
+                on_click=lambda e: asyncio.create_task(self.pokaz_pelny_podglad_dok(e))
+            ),
+            ft.Button(
+                "W prawo", icon=ft.Icons.ROTATE_RIGHT, height=44, expand=True,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: asyncio.create_task(self.obroc_dok(-90))
+            )
+        ], spacing=6, visible=False, alignment=ft.MainAxisAlignment.CENTER)
 
         self.btn_start_dok = ft.Button(
             content=ft.Row([ft.Icon(ft.Icons.PLAY_ARROW, size=24), ft.Text("Odczytaj zaznaczony obszar", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
@@ -778,7 +792,23 @@ class ViewsManager:
             ]
         )
 
-        # Czysty ekran główny modułu bez nadmiaru przycisków
+        # Dialog pełnego podglądu zdjęcia w wysokiej rozdzielczości
+        self.img_pelny_podglad = ft.Image(src=config.PUSTY_OBRAZ, fit="contain", expand=True)
+        self.dlg_pelny_podglad = ft.AlertDialog(
+            modal=True,
+            inset_padding=ft.Padding(4, 10, 4, 10),
+            content=ft.Container(
+                content=self.img_pelny_podglad,
+                alignment=ft.Alignment(0, 0),
+                width=600,
+                height=800
+            ),
+            actions=[
+                ft.Button("Zamknij podgląd", icon=ft.Icons.CLOSE, on_click=lambda e: self.page.pop_dialog())
+            ]
+        )
+
+        # Kompaktowy ekran główny modułu
         self.widok_dokument = ft.Column([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
@@ -874,11 +904,34 @@ class ViewsManager:
         self.kadr_dok_zmieniony = False
         self._odswiez_pozycje_ramki_dok()
 
+    async def pokaz_pelny_podglad_dok(self, e):
+        if not self.zdjecie_dok["sciezka"] or not os.path.exists(self.zdjecie_dok["sciezka"]):
+            return
+
+        sciezka_do_wyswietlenia = self.zdjecie_dok["sciezka"]
+
+        # Jeśli ramka kadrowania była ruszana – przycinamy dokładnie do zaznaczonego obszaru
+        if self.kadr_dok_zmieniony:
+            proc_lewo = (self.crop_dok_x1 / self.SZEROKOSC_DOK) * 100.0
+            proc_gora = (self.crop_dok_y1 / self.WYSOKOSC_DOK) * 100.0
+            proc_prawo = ((self.SZEROKOSC_DOK - self.crop_dok_x2) / self.SZEROKOSC_DOK) * 100.0
+            proc_dol = ((self.WYSOKOSC_DOK - self.crop_dok_y2) / self.WYSOKOSC_DOK) * 100.0
+
+            loop = asyncio.get_running_loop()
+            sciezka_do_wyswietlenia = await loop.run_in_executor(
+                None, core.kadruj_plik_graficzny, self.zdjecie_dok["sciezka"],
+                proc_lewo, proc_gora, proc_prawo, proc_dol
+            )
+
+        self.img_pelny_podglad.src = sciezka_do_wyswietlenia
+        self.ui.bezpiecznie_otworz_dialog(self.dlg_pelny_podglad)
+
     def ustaw_nowy_obraz_dok(self, sciezka: str):
         nowa = os.path.join(config.KATALOG_DANYCH, f"img_dok_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
         shutil.copyfile(sciezka, nowa)
         self.zdjecie_dok["sciezka"] = nowa
         self.podglad_dok.src = nowa
+        self.img_pelny_podglad.src = nowa
         self.ramka_dok.visible = True
         self.wiersz_obrotu_dok.visible = True
         self.btn_start_dok.disabled = False
@@ -894,6 +947,7 @@ class ViewsManager:
         )
         self.zdjecie_dok["sciezka"] = nowa_sciezka
         self.podglad_dok.src = nowa_sciezka
+        self.img_pelny_podglad.src = nowa_sciezka
         self.resetuj_kadr_dok()
         self.status_dok.value = f"Obrócono dokument o {kat}°."
         self.page.update()
@@ -1142,7 +1196,7 @@ class ViewsManager:
             self.ustaw_nowy_obraz_dok(pliki[0].path)
 
     # =========================================================================
-    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (OBRÓT, WYCINANIE, FILTRY W DIALOGU)
+    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (OBRÓT, WYCINANIE, PODGLĄD KADRU, FILTRY)
     # =========================================================================
     def _inicjalizuj_modul_skanera(self):
         self.SZEROKOSC_SKAN = 320
@@ -1154,6 +1208,7 @@ class ViewsManager:
         self.crop_y1 = 0.0
         self.crop_x2 = float(self.SZEROKOSC_SKAN)
         self.crop_y2 = float(self.WYSOKOSC_SKAN)
+        self.kadr_skan_zmieniony = False
 
         # Historia kroków do cofania
         self.historia_skan = []
@@ -1236,21 +1291,38 @@ class ViewsManager:
             size=12, color=ft.Colors.ORANGE_200, text_align=ft.TextAlign.CENTER
         )
 
-        # 1. Pasek obrotu obrazu (bezpośrednio pod ramką)
+        # Przycisk podglądu kadru – 2x szerszy prostokąt (96 px) z wycentrowaną ikoną
+        self.btn_podglad_kadru_skan = ft.Button(
+            content=ft.Row([
+                ft.Icon(ft.Icons.CROP_FREE, size=26, color=ft.Colors.ORANGE_ACCENT)
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            width=96,
+            height=44,
+            tooltip="Pełny podgląd wycinanego kadru",
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.GREY_800,
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=0
+            ),
+            on_click=lambda e: asyncio.create_task(self.pokaz_pelny_podglad_skan(e))
+        )
+
+        # 1. Pasek obrotu z kwadratowym przyciskiem podglądu w środku
         self.wiersz_obrotu_skan = ft.Row([
             ft.Button(
-                "Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=42, expand=True,
+                "W lewo", icon=ft.Icons.ROTATE_LEFT, height=44, expand=True,
                 style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
                 on_click=lambda e: asyncio.create_task(self.obroc_skan(90))
             ),
+            self.btn_podglad_kadru_skan,
             ft.Button(
-                "Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=42, expand=True,
+                "W prawo", icon=ft.Icons.ROTATE_RIGHT, height=44, expand=True,
                 style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
                 on_click=lambda e: asyncio.create_task(self.obroc_skan(-90))
             )
-        ], spacing=10, visible=False)
+        ], spacing=6, visible=False, alignment=ft.MainAxisAlignment.CENTER)
 
-        # 2. Główny przycisk wycinania kadru
+        # 2. Główny przycisk wycinania kadru na pełną szerokość
         self.btn_wytnij_kadr = ft.Button(
             content=ft.Row([ft.Icon(ft.Icons.CROP, size=22), ft.Text("Wytnij zaznaczony kadr", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
             height=48,
@@ -1258,7 +1330,7 @@ class ViewsManager:
             on_click=self.przytnij_zaznaczenie
         )
 
-        # 3. Przyciski narzędzi pod wycinaniem (Filtry i Udostępnij na głównym ekranie)
+        # 3. Narzędzia pod wycinaniem (Filtry i Udostępnij)
         self.btn_otworz_filtry = ft.Button(
             content=ft.Row([ft.Icon(ft.Icons.TUNE, size=18), ft.Text("Filtry i reset", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
             height=44,
@@ -1331,6 +1403,22 @@ class ViewsManager:
             ]
         )
 
+        # Dialog pełnego podglądu kadru
+        self.img_pelny_podglad_skan = ft.Image(src=config.PUSTY_OBRAZ, fit="contain", expand=True)
+        self.dlg_pelny_podglad_skan = ft.AlertDialog(
+            modal=True,
+            inset_padding=ft.Padding(4, 10, 4, 10),
+            content=ft.Container(
+                content=self.img_pelny_podglad_skan,
+                alignment=ft.Alignment(0, 0),
+                width=600,
+                height=800
+            ),
+            actions=[
+                ft.Button("Zamknij podgląd", icon=ft.Icons.CLOSE, on_click=lambda e: self.page.pop_dialog())
+            ]
+        )
+
         # Cały widok skanera (zablokowany bez scrollowania)
         self.widok_skanera = ft.Column([
             ft.Row([
@@ -1353,7 +1441,7 @@ class ViewsManager:
                     style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("skaner"))
                 )
-            ]),
+            ], spacing=8),
             self.status_skan,
             self.ramka_skanera,
             self.kontener_dolny_skan
@@ -1377,6 +1465,7 @@ class ViewsManager:
 
     def _przesun_uchwyt(self, ktory: str, dx: float, dy: float):
         min_rozmiar = 40.0
+        self.kadr_skan_zmieniony = True
         if ktory == "lt":
             self.crop_x1 = max(0.0, min(self.crop_x1 + dx, self.crop_x2 - min_rozmiar))
             self.crop_y1 = max(0.0, min(self.crop_y1 + dy, self.crop_y2 - min_rozmiar))
@@ -1393,6 +1482,7 @@ class ViewsManager:
         self._odswiez_pozycje_ramki()
 
     def _przesun_caly_kadr(self, dx: float, dy: float):
+        self.kadr_skan_zmieniony = True
         szerokosc = self.crop_x2 - self.crop_x1
         wysokosc = self.crop_y2 - self.crop_y1
 
@@ -1453,6 +1543,28 @@ class ViewsManager:
 
         self.page.update()
 
+    async def pokaz_pelny_podglad_skan(self, e):
+        if not self.zdjecie_skan["sciezka"] or not os.path.exists(self.zdjecie_skan["sciezka"]):
+            return
+
+        sciezka_do_wyswietlenia = self.zdjecie_skan["sciezka"]
+
+        # Jeśli zmieniono kadr, pokazujemy wycięty obszar
+        if self.kadr_skan_zmieniony:
+            proc_lewo = (self.crop_x1 / self.SZEROKOSC_SKAN) * 100.0
+            proc_gora = (self.crop_y1 / self.WYSOKOSC_SKAN) * 100.0
+            proc_prawo = ((self.SZEROKOSC_SKAN - self.crop_x2) / self.SZEROKOSC_SKAN) * 100.0
+            proc_dol = ((self.WYSOKOSC_SKAN - self.crop_y2) / self.WYSOKOSC_SKAN) * 100.0
+
+            loop = asyncio.get_running_loop()
+            sciezka_do_wyswietlenia = await loop.run_in_executor(
+                None, core.kadruj_plik_graficzny, str(self.zdjecie_skan["sciezka"]),
+                proc_lewo, proc_gora, proc_prawo, proc_dol
+            )
+
+        self.img_pelny_podglad_skan.src = str(sciezka_do_wyswietlenia)
+        self.ui.bezpiecznie_otworz_dialog(self.dlg_pelny_podglad_skan)
+
     def ustaw_nowy_obraz_skan(self, sciezka: str):
         nowa = os.path.join(config.KATALOG_DANYCH, f"img_skan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
         shutil.copyfile(sciezka, nowa)
@@ -1460,6 +1572,7 @@ class ViewsManager:
         self.zdjecie_skan["sciezka"] = str(nowa)
         self.historia_skan = []
         self.ostatni_aktywny_filtr = None
+        self.kadr_skan_zmieniony = False
         self.btn_cofnij_filtr.disabled = True
 
         self.podglad_skan.src_base64 = None
@@ -1487,6 +1600,7 @@ class ViewsManager:
         self.zdjecie_skan["oryginal"] = str(nowa_sciezka)
         self.historia_skan = []
         self.ostatni_aktywny_filtr = None
+        self.kadr_skan_zmieniony = False
         self.btn_cofnij_filtr.disabled = True
         self.podglad_skan.src_base64 = None
         self.podglad_skan.src = str(nowa_sciezka)
@@ -1528,6 +1642,7 @@ class ViewsManager:
         self.crop_y1 = 0.0
         self.crop_x2 = float(self.SZEROKOSC_SKAN)
         self.crop_y2 = float(self.WYSOKOSC_SKAN)
+        self.kadr_skan_zmieniony = False
         self._odswiez_pozycje_ramki()
 
         self.status_skan.value = "✅ Przycięto kadr! Otwórz filtry lub udostępnij."
@@ -1573,6 +1688,7 @@ class ViewsManager:
             self.crop_y1 = 0.0
             self.crop_x2 = float(self.SZEROKOSC_SKAN)
             self.crop_y2 = float(self.WYSOKOSC_SKAN)
+            self.kadr_skan_zmieniony = False
             self._odswiez_pozycje_ramki()
             self.status_skan.value = "↩️ Cofnięto przycięcie kadru."
         else:
@@ -1586,11 +1702,9 @@ class ViewsManager:
         if not self.zdjecie_skan["oryginal"] or not os.path.exists(self.zdjecie_skan["oryginal"]):
             return
 
-        # Jeśli obraz jest już w kolorze (bez filtrów), nic nie robimy
         if self.zdjecie_skan["sciezka"] == self.zdjecie_skan["oryginal"]:
             return
 
-        # Zapisujemy obecny filtr na stosie, by można było cofnąć ten krok
         self.historia_skan.append((str(self.zdjecie_skan["sciezka"]), str(self.zdjecie_skan["oryginal"])))
         self.btn_cofnij_filtr.disabled = False
 
