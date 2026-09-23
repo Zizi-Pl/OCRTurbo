@@ -999,35 +999,45 @@ class ViewsManager:
                 on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
             ),
             ft.Container(height=40)
-        ], visible=False, spacing=10)
+        ], visible=False, spacing=10, tight=True)  # <--- dodany tight=True
+
+        # Przewijalny dolny panel narzędziowy dla skanera
+        self.dolny_panel_skanera = ft.ListView(
+            controls=[
+                self.wiersz_obrotu_skan,
+                self.kontener_akcji_skanu
+            ],
+            spacing=10,
+            expand=True,
+            padding=ft.Padding(0, 5, 0, 20)
+        )
 
         self.widok_skanera = ft.Column([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
                 ft.Column([
-                    ft.Text("Szybki Skaner Graficzny", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_400),
-                    ft.Text("Złap rogi lub przesuń cały kadr za środek", size=12, color=ft.Colors.GREY_400)
-                ], spacing=2)
+                    ft.Text("Szybki Skaner Graficzny", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_400),
+                    ft.Text("Złap rogi lub przesuń cały kadr za środek", size=11, color=ft.Colors.GREY_400)
+                ], spacing=1)
             ]),
             ft.Row([
                 ft.Button(
                     content=ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("Galeria", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                    height=52, expand=True,
+                    height=48, expand=True,
                     style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=self.wybierz_foto_skan
                 ),
                 ft.Button(
                     content=ft.Row([ft.Icon(ft.Icons.CAMERA_ALT), ft.Text("Aparat", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                    height=52, expand=True,
+                    height=48, expand=True,
                     style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("skaner"))
                 )
             ], spacing=10),
             self.status_skan,
-            self.ramka_skanera,
-            self.wiersz_obrotu_skan,
-            self.kontener_akcji_skanu
-        ], spacing=10, visible=False)
+            self.ramka_skanera,         # Nieruchomy podgląd - gesty rogów i środka łapią natychmiast!
+            self.dolny_panel_skanera    # Niezależny dolny scroll dla przycisków
+        ], spacing=8, expand=True, visible=False)
 
     def _pobierz_deltas(self, e):
         dx = getattr(e, "delta", None)
@@ -1289,9 +1299,17 @@ class ViewsManager:
             kafel_wyboru("Szybki Skaner Graficzny", "Kadrowanie z podglądem na żywo i filtry czarno-białe (offline).", ft.Icons.CROP_FREE, ft.Colors.DEEP_ORANGE_900, ft.Colors.ORANGE_300, "skaner")
         ], spacing=12, visible=True)
 
-    def przelacz_widok(self, nazwa_widoku: str):
-        self.widok_menu.visible = (nazwa_widoku == "menu")
-        self.widok_pz.visible = (nazwa_widoku == "pz")
-        self.widok_dokument.visible = (nazwa_widoku == "dokument")
-        self.widok_skanera.visible = (nazwa_widoku == "skaner")
+    def przelacz_widok(self, nazwa: str):
+        # 1. Przełączanie widoczności modułów (właściwe nazwy zmiennych)
+        self.widok_menu.visible = (nazwa == "menu")
+        self.widok_pz.visible = (nazwa == "pz")
+        self.widok_dokument.visible = (nazwa == "dokument")
+        self.widok_skanera.visible = (nazwa == "skaner")
+
+        # 2. Blokada scrolla dla skanera (zero kradzieży dotyku narożników!)
+        if nazwa == "skaner":
+            self.page.scroll = None  # Sztywny ekran pod gesty dotykowe kadrowania
+        else:
+            self.page.scroll = ft.ScrollMode.AUTO  # Płynny scroll dla PZ, Dokumentu i Menu
+
         self.page.update()
