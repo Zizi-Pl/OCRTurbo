@@ -848,12 +848,12 @@ class ViewsManager:
             self.ustaw_nowy_obraz_dok(pliki[0].path)
 
     # =========================================================================
-    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (DOTYK, PRZESUWANIE ŚRODKIEM, COFANIE)
+    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (DOTYK, PRZESUWANIE ŚRODKIEM, BOTTOMSHEET)
     # =========================================================================
     def _inicjalizuj_modul_skanera(self):
         self.SZEROKOSC_SKAN = 320
-        self.WYSOKOSC_SKAN = 400
-        self.UCHWYT_ROZMIAR = 48  # Większy obszar dotykowy dla wygody palca
+        self.WYSOKOSC_SKAN = 380
+        self.UCHWYT_ROZMIAR = 48  # Wygodny obszar dotykowy dla palca
 
         # Współrzędne ramki w pikselach
         self.crop_x1 = 0.0
@@ -864,7 +864,7 @@ class ViewsManager:
         # Historia kroków do cofania
         self.historia_skan = []
         self.ostatni_aktywny_filtr = None
-        
+
         self.podglad_skan = ft.Image(
             src=config.PUSTY_OBRAZ,
             fit="fill",
@@ -939,30 +939,23 @@ class ViewsManager:
 
         self.status_skan = ft.Text(
             "Wczytaj skan, aby wykadrować i nałożyć filtry.",
-            size=13, color=ft.Colors.ORANGE_200, text_align=ft.TextAlign.CENTER
+            size=12, color=ft.Colors.ORANGE_200, text_align=ft.TextAlign.CENTER
         )
 
         self.wiersz_obrotu_skan = ft.Row([
             ft.Button(
-                "Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=48, expand=True,
+                "Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=44, expand=True,
                 style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
                 on_click=lambda e: asyncio.create_task(self.obroc_skan(90))
             ),
             ft.Button(
-                "Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=48, expand=True,
+                "Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=44, expand=True,
                 style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
                 on_click=lambda e: asyncio.create_task(self.obroc_skan(-90))
             )
         ], spacing=10, visible=False)
 
-        # Przycisk cofania ostatniego nałożonego efektu
-        self.btn_cofnij_filtr = ft.Button(
-            "Cofnij ostatni krok", icon=ft.Icons.UNDO, height=48, expand=True,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
-            disabled=True,
-            on_click=self.cofnij_ostatni_krok_skan
-        )
-
+        # Kontrolki filtrów i akcji
         self.btn_filtr_bw = ft.Button(
             "B&W", height=48, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
@@ -978,72 +971,62 @@ class ViewsManager:
             style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_900, shape=ft.RoundedRectangleBorder(radius=8)),
             on_click=lambda e: asyncio.create_task(self.przelacz_filtr_skan("wyostrz"))
         )
-
-        self.kontener_akcji_skanu = ft.Column([
-            ft.Button(
-                content=ft.Row([ft.Icon(ft.Icons.CROP, size=22), ft.Text("Wytnij zaznaczony kadr", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                height=54,
-                style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
-                on_click=self.przytnij_zaznaczenie
-            ),
-            ft.Divider(height=16),
-            ft.Text("Filtry kontrastowe (kliknij ponownie ten sam, by go cofnąć):", size=12, weight=ft.FontWeight.BOLD),
-            ft.Row([self.btn_filtr_bw, self.btn_filtr_szary], spacing=8),
-            ft.Row([self.btn_filtr_wyostrz]),
-            ft.Row([self.btn_cofnij_filtr]),
-            ft.Divider(height=16),
-            ft.Button(
-                content=ft.Row([ft.Icon(ft.Icons.SHARE, size=24), ft.Text("Udostępnij gotowy skan", size=16, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                height=56,
-                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
-                on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
-            ),
-            ft.Container(height=40)
-        ], visible=False, spacing=10, tight=True)  # <--- dodany tight=True
-
-        # Przewijalny dolny panel narzędziowy dla skanera z uchwytem dotykowym
-        self.kontener_akcji_skanu = ft.Column([
-            ft.Button(
-                content=ft.Row([ft.Icon(ft.Icons.CROP, size=22), ft.Text("Wytnij zaznaczony kadr", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                height=52,
-                style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
-                on_click=self.przytnij_zaznaczenie
-            ),
-            ft.Divider(height=12),
-            ft.Text("Filtry kontrastowe (kliknij ponownie ten sam, by go cofnąć):", size=12, weight=ft.FontWeight.BOLD),
-            ft.Row([self.btn_filtr_bw, self.btn_filtr_szary], spacing=8),
-            ft.Row([self.btn_filtr_wyostrz]),
-            ft.Row([self.btn_cofnij_filtr]),
-            ft.Divider(height=12),
-            ft.Button(
-                content=ft.Row([ft.Icon(ft.Icons.SHARE, size=22), ft.Text("Udostępnij gotowy skan", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                height=52,
-                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
-                on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
-            ),
-            ft.Container(height=80)  # Bezpieczny odstęp od dolnego paska nawigacji Androida
-        ], visible=False, spacing=10)
-
-        # Wygodny uchwyt ułatwiający przewijanie palcem zamiast dotykania przycisków
-        uchwyt_przewijania = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.Icons.SWIPE_VERTICAL, size=16, color=ft.Colors.GREY_500),
-                ft.Text("Przewiń narzędzia w górę / w dół", size=11, color=ft.Colors.GREY_500)
-            ], alignment=ft.MainAxisAlignment.CENTER),
-            padding=ft.Padding(0, 4, 0, 4)
+        self.btn_cofnij_filtr = ft.Button(
+            "Cofnij ostatni krok", icon=ft.Icons.UNDO, height=48, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            disabled=True,
+            on_click=self.cofnij_ostatni_krok_skan
         )
 
-        self.dolny_panel_skanera = ft.Column(
-            controls=[
-                uchwyt_przewijania,
-                self.wiersz_obrotu_skan,
-                self.kontener_akcji_skanu
-            ],
-            spacing=8,
+        # Arkusz dolny (BottomSheet) z filtrami i udostępnianiem
+        # Zastąp self.sheet_filtry tym dialogiem:
+        self.dlg_filtry = ft.AlertDialog(
+            modal=False,
+            title=ft.Text("Narzędzia i filtry", size=16, weight=ft.FontWeight.BOLD),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("Filtry kontrastowe (kliknij ponownie, by cofnąć):", size=12, color=ft.Colors.GREY_300),
+                    ft.Row([self.btn_filtr_bw, self.btn_filtr_szary], spacing=8),
+                    ft.Row([self.btn_filtr_wyostrz]),
+                    ft.Row([self.btn_cofnij_filtr]),
+                    ft.Divider(height=14),
+                    ft.Button(
+                        content=ft.Row([ft.Icon(ft.Icons.SHARE, size=22), ft.Text("Udostępnij gotowy skan", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                        height=50,
+                        style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
+                        on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
+                    ),
+                ], spacing=10, tight=True),
+                width=320,
+            ),
+            actions=[
+                ft.Button("Zamknij", on_click=lambda e: self.zamknij_sheet_filtrow())
+            ]
+        )
+
+        # Stałe przyciski główne pod ramką (brak scrollowania)
+        self.btn_wytnij_kadr = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.CROP, size=20), ft.Text("Wytnij kadr", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=48,
             expand=True,
-            scroll=ft.ScrollMode.AUTO
+            style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=self.przytnij_zaznaczenie
+        )
+        self.btn_otworz_sheet = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.TUNE, size=20), ft.Text("Filtry i akcje", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=48,
+            expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: self.otworz_sheet_filtrow()
         )
 
+        self.wiersz_akcji_skanu = ft.Row(
+            [self.btn_wytnij_kadr, self.btn_otworz_sheet],
+            spacing=8,
+            visible=False
+        )
+
+        # Cały widok skanera (sztywny, bez scrolla)
         self.widok_skanera = ft.Column([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
@@ -1068,8 +1051,16 @@ class ViewsManager:
             ], spacing=8),
             self.status_skan,
             self.ramka_skanera,
-            self.dolny_panel_skanera
-        ], spacing=6, expand=True, visible=False)
+            self.wiersz_obrotu_skan,
+            self.wiersz_akcji_skanu
+        ], spacing=8, visible=False)
+
+    def otworz_sheet_filtrow(self):
+        self.ui.bezpiecznie_otworz_dialog(self.dlg_filtry)
+
+    def zamknij_sheet_filtrow(self):
+        self.dlg_filtry.open = False
+        self.page.update()
 
     def _pobierz_deltas(self, e):
         dx = getattr(e, "delta", None)
@@ -1170,7 +1161,7 @@ class ViewsManager:
         self.podglad_skan.src_base64 = None
         self.podglad_skan.src = str(nowa)
         self.ramka_skanera.visible = True
-        self.kontener_akcji_skanu.visible = True
+        self.wiersz_akcji_skanu.visible = True
         self.wiersz_obrotu_skan.visible = True
 
         self.crop_x1 = 0.0
@@ -1235,7 +1226,7 @@ class ViewsManager:
         self.crop_y2 = float(self.WYSOKOSC_SKAN)
         self._odswiez_pozycje_ramki()
 
-        self.status_skan.value = "✅ Przycięto kadr! Możesz nakładać filtry lub cofnąć cięcie."
+        self.status_skan.value = "✅ Przycięto kadr! Otwórz filtry lub cofnij cięcie."
         self.page.update()
 
     async def przelacz_filtr_skan(self, typ: str):
@@ -1261,7 +1252,7 @@ class ViewsManager:
         self.podglad_skan.src_base64 = None
         self.podglad_skan.src = str(nowa_sciezka)
         self.ostatni_aktywny_filtr = typ
-        self.status_skan.value = f"✅ Zastosowano filtr: {typ} (kliknij ponownie ten sam, by go cofnąć)."
+        self.status_skan.value = f"✅ Zastosowano filtr: {typ}."
         self.page.update()
 
     def cofnij_ostatni_krok_skan(self, e=None):
