@@ -1,4 +1,4 @@
-# ocrLmm Mobile 📱📄
+# ocrTurbo 📱📄
 
 [![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](#funkcjonalności)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](#budowanie-wersji-desktopowej-windows)
