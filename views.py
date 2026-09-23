@@ -129,7 +129,7 @@ class ViewsManager:
         pasek_tytulu_pz = ft.Row(
             [
                 ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK, tooltip="Menu Główne", on_click=lambda e: self.przelacz_widok("menu")),
+                    ft.IconButton(ft.Icons.ARROW_BACK, tooltip="Menu Główne", on_click=lambda e: asyncio.create_task(self.przelacz_widok("menu"))),
                     ft.Column([
                         ft.Text("ocrLmm Mobile", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
                         ft.Text("Skaner PZ (PC-Market)", size=11, color=ft.Colors.GREY_400)
@@ -811,7 +811,7 @@ class ViewsManager:
         # Kompaktowy ekran główny modułu
         self.widok_dokument = ft.Column([
             ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
+                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: asyncio.create_task(self.przelacz_widok("menu"))),
                 ft.Column([
                     ft.Text("Odczyt Dokumentu (1:1)", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400),
                     ft.Text("Zaznacz kadr lub odczytaj całość do TXT, Word lub Excel", size=11, color=ft.Colors.GREY_400)
@@ -1422,7 +1422,7 @@ class ViewsManager:
         # Cały widok skanera (zablokowany bez scrollowania)
         self.widok_skanera = ft.Column([
             ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
+                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: asyncio.create_task(self.przelacz_widok("menu"))),
                 ft.Column([
                     ft.Text("Szybki Skaner Graficzny", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_400),
                     ft.Text("Złap rogi lub przesuń cały kadr za środek", size=11, color=ft.Colors.GREY_400)
@@ -1737,7 +1737,7 @@ class ViewsManager:
                 bgcolor=bg_kolor,
                 border_radius=10,
                 ink=True,
-                on_click=lambda e: self.przelacz_widok(cel)
+                on_click=lambda e: asyncio.create_task(self.przelacz_widok(cel))
             )
 
         self.widok_menu = ft.Column([
@@ -1754,14 +1754,33 @@ class ViewsManager:
             kafel_wyboru("Szybki Skaner Graficzny", "Kadrowanie z podglądem na żywo i filtry czarno-białe (offline).", ft.Icons.CROP_FREE, ft.Colors.DEEP_ORANGE_900, ft.Colors.ORANGE_300, "skaner")
         ], spacing=12, visible=True)
 
-    def przelacz_widok(self, nazwa: str):
-        # 1. Przełączanie widoczności modułów
+    # --- STEROWANIE WIDOKAMI I DYNAMICZNĄ ORIENTACJĄ ---
+    async def przelacz_widok(self, nazwa: str):
+        # 1. Dynamiczna blokada orientacji na telefonie
+        try:
+            if hasattr(self.page, "set_allowed_device_orientations"):
+                if nazwa in ("skaner", "dokument"):
+                    # Sztywny pion dla modułu II i III
+                    await self.page.set_allowed_device_orientations([
+                        ft.DeviceOrientation.PORTRAIT_UP
+                    ])
+                else:
+                    # Pełna swoboda (pion + poziom) dla Menu i Modułu I (pz)
+                    await self.page.set_allowed_device_orientations([
+                        ft.DeviceOrientation.PORTRAIT_UP,
+                        ft.DeviceOrientation.LANDSCAPE_LEFT,
+                        ft.DeviceOrientation.LANDSCAPE_RIGHT,
+                    ])
+        except Exception:
+            pass  # Zabezpieczenie przed błędem na pulpicie Windows / w przeglądarce
+
+        # 2. Przełączanie widoczności modułów
         self.widok_menu.visible = (nazwa == "menu")
         self.widok_pz.visible = (nazwa == "pz")
         self.widok_dokument.visible = (nazwa == "dokument")
         self.widok_skanera.visible = (nazwa == "skaner")
 
-        # 2. Blokada scrolla dla skanera i dokumentu (zero kradzieży dotyku narożników!)
+        # 3. Blokada scrolla dla skanera i dokumentu (zero kradzieży dotyku narożników!)
         if nazwa in ("skaner", "dokument"):
             self.page.scroll = None
         else:
