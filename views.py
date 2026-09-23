@@ -642,123 +642,248 @@ class ViewsManager:
             self.page.update()
 
     # =========================================================================
-    # 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, NOWY STYL KAFELKOWY)
+    # 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, KADROWANIE DOTYKOWE, DIALOG WYNIKÓW)
     # =========================================================================
     def _inicjalizuj_modul_dokument(self):
+        self.SZEROKOSC_DOK = 320
+        self.WYSOKOSC_DOK = 280
+        self.UCHWYT_ROZMIAR_DOK = 44
+
+        # Współrzędne ramki kadrowania
+        self.crop_dok_x1 = 0.0
+        self.crop_dok_y1 = 0.0
+        self.crop_dok_x2 = float(self.SZEROKOSC_DOK)
+        self.crop_dok_y2 = float(self.WYSOKOSC_DOK)
+        self.kadr_dok_zmieniony = False
+
         self.podglad_dok = ft.Image(
             src=config.PUSTY_OBRAZ,
-            fit="contain",
-            height=200,
-            border_radius=8
+            fit="fill",
+            width=self.SZEROKOSC_DOK,
+            height=self.WYSOKOSC_DOK
         )
 
-        self.wiersz_obrotu_dok = ft.Row([
-            ft.Button(
-                "Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=48, expand=True,
-                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
-                on_click=lambda e: asyncio.create_task(self.obroc_dok(90))
+        # Maski przyciemniające
+        self.maska_dok_gora = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, left=0, width=self.SZEROKOSC_DOK, height=0)
+        self.maska_dok_dol = ft.Container(bgcolor=ft.Colors.BLACK54, bottom=0, left=0, width=self.SZEROKOSC_DOK, height=0)
+        self.maska_dok_lewo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, left=0, width=0)
+        self.maska_dok_prawo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, right=0, width=0)
+
+        # Środek ramki – chwytanie i przesuwanie całego kadru
+        self.strefa_srodka_dok = ft.GestureDetector(
+            content=ft.Container(
+                border=ft.Border.all(2.0, ft.Colors.BLUE_ACCENT),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.BLUE_ACCENT)
             ),
-            ft.Button(
-                "Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=48, expand=True,
-                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
-                on_click=lambda e: asyncio.create_task(self.obroc_dok(-90))
-            )
-        ], spacing=10, visible=False)
-
-        self.status_dok = ft.Text(
-            "Zrób zdjęcie lub wybierz dokument do odczytu układu 1:1.",
-            size=13, color=ft.Colors.BLUE_200, text_align=ft.TextAlign.CENTER
+            drag_interval=10,
+            on_pan_update=lambda e: self._przesun_caly_kadr_dok(*self._pobierz_deltas(e)),
+            top=0, left=0, width=self.SZEROKOSC_DOK, height=self.WYSOKOSC_DOK
         )
-        self.pasek_dok = ft.ProgressBar(visible=False, color=ft.Colors.BLUE_ACCENT)
 
-        self.txt_edytor_dok = ft.TextField(
-            multiline=True,
-            min_lines=12,
-            max_lines=25,
-            text_size=12,
-            dense=True,
-            border_color=ft.Colors.BLUE_GREY_700,
-            bgcolor=ft.Colors.GREY_900,
-            border_radius=8,
+        def stworz_uchwyt_dok():
+            return ft.Container(
+                alignment=ft.Alignment(0, 0),
+                content=ft.Container(
+                    width=26, height=26,
+                    bgcolor=ft.Colors.BLUE_ACCENT,
+                    border_radius=13,
+                    border=ft.Border.all(2.5, ft.Colors.WHITE)
+                ),
+                width=self.UCHWYT_ROZMIAR_DOK,
+                height=self.UCHWYT_ROZMIAR_DOK
+            )
+
+        self.uchwyt_dok_lt = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("lt", *self._pobierz_deltas(e)), top=0, left=0)
+        self.uchwyt_dok_rt = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("rt", *self._pobierz_deltas(e)), top=0, left=self.SZEROKOSC_DOK - self.UCHWYT_ROZMIAR_DOK)
+        self.uchwyt_dok_lb = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("lb", *self._pobierz_deltas(e)), top=self.WYSOKOSC_DOK - self.UCHWYT_ROZMIAR_DOK, left=0)
+        self.uchwyt_dok_rb = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("rb", *self._pobierz_deltas(e)), top=self.WYSOKOSC_DOK - self.UCHWYT_ROZMIAR_DOK, left=self.SZEROKOSC_DOK - self.UCHWYT_ROZMIAR_DOK)
+
+        self.ramka_dok = ft.Container(
+            content=ft.Stack([
+                self.podglad_dok,
+                self.maska_dok_gora, self.maska_dok_dol, self.maska_dok_lewo, self.maska_dok_prawo,
+                self.strefa_srodka_dok,
+                self.uchwyt_dok_lt, self.uchwyt_dok_rt, self.uchwyt_dok_lb, self.uchwyt_dok_rb
+            ]),
+            width=self.SZEROKOSC_DOK,
+            height=self.WYSOKOSC_DOK,
+            alignment=ft.Alignment(0, 0),
             visible=False
         )
 
+        self.status_dok = ft.Text("Zrób zdjęcie lub wybierz dokument z galerii.", size=12, color=ft.Colors.BLUE_200, text_align=ft.TextAlign.CENTER)
+        self.pasek_dok = ft.ProgressBar(visible=False, color=ft.Colors.BLUE_ACCENT)
+
+        self.wiersz_obrotu_dok = ft.Row([
+            ft.Button("Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=44, expand=True, style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)), on_click=lambda e: asyncio.create_task(self.obroc_dok(90))),
+            ft.Button("Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=44, expand=True, style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)), on_click=lambda e: asyncio.create_task(self.obroc_dok(-90)))
+        ], spacing=10, visible=False)
+
         self.btn_start_dok = ft.Button(
-            content=ft.Row([
-                ft.Icon(ft.Icons.PLAY_ARROW, size=24),
-                ft.Text("Odczytaj tekst dokumentu", size=15, weight=ft.FontWeight.BOLD)
-            ], alignment=ft.MainAxisAlignment.CENTER),
-            height=54,
-            disabled=True,
-            style=ft.ButtonStyle(
-                bgcolor=ft.Colors.BLUE_800,
-                color=ft.Colors.WHITE,
-                shape=ft.RoundedRectangleBorder(radius=10)
-            ),
+            content=ft.Row([ft.Icon(ft.Icons.PLAY_ARROW, size=24), ft.Text("Odczytaj zaznaczony obszar", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=50, disabled=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
             on_click=self.analizuj_dokument_dok
         )
 
+        # Kontrolki do okna modalnego z wynikami
+        self.txt_edytor_dok = ft.TextField(
+            multiline=True, min_lines=12, max_lines=24, text_size=12, dense=True,
+            border_color=ft.Colors.BLUE_GREY_700, bgcolor=ft.Colors.GREY_900, border_radius=8
+        )
+
         self.btn_kopiuj_dok = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.COPY, size=20), ft.Text("Kopiuj tekst", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-            height=50,
-            expand=True,
-            visible=False,
+            content=ft.Row([ft.Icon(ft.Icons.COPY, size=18), ft.Text("Kopiuj", size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=44, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
             on_click=self.kopiuj_do_schowka_dok
         )
-
-        self.btn_zapisz_dok = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.SHARE, size=20), ft.Text("Udostępnij .TXT", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-            height=50,
-            expand=True,
-            visible=False,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+        self.btn_zapisz_txt_dok = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.TEXT_SNIPPET, size=18), ft.Text(".TXT", size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=44, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
             on_click=self.udostepnij_tekst_dok
         )
+        self.btn_zapisz_docx_dok = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.DESCRIPTION, size=18), ft.Text(".DOCX", size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=44, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=self.udostepnij_docx_dok
+        )
+        self.btn_zapisz_xlsx_dok = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.TABLE_CHART, size=18), ft.Text(".XLSX", size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=44, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=self.udostepnij_xlsx_dok
+        )
 
+        self.dlg_wynik_dok = ft.AlertDialog(
+            modal=True,
+            inset_padding=ft.Padding(10, 20, 10, 20),
+            title=ft.Row([
+                ft.Icon(ft.Icons.ARTICLE, color=ft.Colors.BLUE_400),
+                ft.Text("Wynik odczytu", size=18, weight=ft.FontWeight.BOLD)
+            ], spacing=8),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Row([self.btn_kopiuj_dok, self.btn_zapisz_txt_dok], spacing=8),
+                    ft.Row([self.btn_zapisz_docx_dok, self.btn_zapisz_xlsx_dok], spacing=8),
+                    ft.Divider(height=10, color=ft.Colors.GREY_800),
+                    self.txt_edytor_dok
+                ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
+                width=450
+            ),
+            actions=[
+                ft.Button("Zamknij", on_click=lambda e: self.page.pop_dialog())
+            ]
+        )
+
+        # Czysty ekran główny modułu bez nadmiaru przycisków
         self.widok_dokument = ft.Column([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
                 ft.Column([
-                    ft.Text("Odczyt Dokumentu", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400),
-                    ft.Text("Zachowanie oryginalnego układu (1:1)", size=12, color=ft.Colors.GREY_400)
-                ], spacing=2)
+                    ft.Text("Odczyt Dokumentu (1:1)", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400),
+                    ft.Text("Zaznacz kadr lub odczytaj całość do TXT, Word lub Excel", size=11, color=ft.Colors.GREY_400)
+                ], spacing=1)
             ]),
             ft.Row([
                 ft.Button(
                     content=ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("Galeria", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                    height=52,
-                    expand=True,
+                    height=44, expand=True,
                     style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=self.wybierz_foto_dok
                 ),
                 ft.Button(
                     content=ft.Row([ft.Icon(ft.Icons.CAMERA_ALT), ft.Text("Aparat", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                    height=52,
-                    expand=True,
+                    height=44, expand=True,
                     style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("dokument"))
                 )
-            ], spacing=10),
-            self.pasek_dok,
+            ], spacing=8),
             self.status_dok,
-            self.btn_start_dok,
-            self.podglad_dok,
+            self.pasek_dok,
+            self.ramka_dok,
             self.wiersz_obrotu_dok,
-            ft.Row([self.btn_kopiuj_dok, self.btn_zapisz_dok], spacing=10),
-            self.txt_edytor_dok,
-            ft.Container(height=40)
-        ], spacing=12, visible=False)
+            self.btn_start_dok
+        ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, visible=False)
+
+    # --- OBSŁUGA KADRU I GESTÓW W DOKUMENCIE ---
+    def _przesun_uchwyt_dok(self, ktory: str, dx: float, dy: float):
+        min_rozmiar = 40.0
+        self.kadr_dok_zmieniony = True
+        if ktory == "lt":
+            self.crop_dok_x1 = max(0.0, min(self.crop_dok_x1 + dx, self.crop_dok_x2 - min_rozmiar))
+            self.crop_dok_y1 = max(0.0, min(self.crop_dok_y1 + dy, self.crop_dok_y2 - min_rozmiar))
+        elif ktory == "rt":
+            self.crop_dok_x2 = min(float(self.SZEROKOSC_DOK), max(self.crop_dok_x2 + dx, self.crop_dok_x1 + min_rozmiar))
+            self.crop_dok_y1 = max(0.0, min(self.crop_dok_y1 + dy, self.crop_dok_y2 - min_rozmiar))
+        elif ktory == "lb":
+            self.crop_dok_x1 = max(0.0, min(self.crop_dok_x1 + dx, self.crop_dok_x2 - min_rozmiar))
+            self.crop_dok_y2 = min(float(self.WYSOKOSC_DOK), max(self.crop_dok_y2 + dy, self.crop_dok_y1 + min_rozmiar))
+        elif ktory == "rb":
+            self.crop_dok_x2 = min(float(self.SZEROKOSC_DOK), max(self.crop_dok_x2 + dx, self.crop_dok_x1 + min_rozmiar))
+            self.crop_dok_y2 = min(float(self.WYSOKOSC_DOK), max(self.crop_dok_y2 + dy, self.crop_dok_y1 + min_rozmiar))
+        self._odswiez_pozycje_ramki_dok()
+
+    def _przesun_caly_kadr_dok(self, dx: float, dy: float):
+        self.kadr_dok_zmieniony = True
+        szer = self.crop_dok_x2 - self.crop_dok_x1
+        wys = self.crop_dok_y2 - self.crop_dok_y1
+        nx1 = max(0.0, min(self.crop_dok_x1 + dx, self.SZEROKOSC_DOK - szer))
+        ny1 = max(0.0, min(self.crop_dok_y1 + dy, self.WYSOKOSC_DOK - wys))
+        self.crop_dok_x1, self.crop_dok_y1 = nx1, ny1
+        self.crop_dok_x2, self.crop_dok_y2 = nx1 + szer, ny1 + wys
+        self._odswiez_pozycje_ramki_dok()
+
+    def _odswiez_pozycje_ramki_dok(self):
+        w = max(1.0, self.crop_dok_x2 - self.crop_dok_x1)
+        h = max(1.0, self.crop_dok_y2 - self.crop_dok_y1)
+        self.strefa_srodka_dok.left = self.crop_dok_x1
+        self.strefa_srodka_dok.top = self.crop_dok_y1
+        self.strefa_srodka_dok.width = w
+        self.strefa_srodka_dok.height = h
+
+        self.maska_dok_gora.height = self.crop_dok_y1
+        self.maska_dok_dol.top = self.crop_dok_y2
+        self.maska_dok_dol.height = max(0.0, self.WYSOKOSC_DOK - self.crop_dok_y2)
+        self.maska_dok_lewo.top = self.crop_dok_y1
+        self.maska_dok_lewo.height = h
+        self.maska_dok_lewo.width = self.crop_dok_x1
+        self.maska_dok_prawo.top = self.crop_dok_y1
+        self.maska_dok_prawo.height = h
+        self.maska_dok_prawo.left = self.crop_dok_x2
+        self.maska_dok_prawo.width = max(0.0, self.SZEROKOSC_DOK - self.crop_dok_x2)
+
+        pol = self.UCHWYT_ROZMIAR_DOK / 2
+        self.uchwyt_dok_lt.left = max(0.0, self.crop_dok_x1 - pol)
+        self.uchwyt_dok_lt.top = max(0.0, self.crop_dok_y1 - pol)
+        self.uchwyt_dok_rt.left = min(self.SZEROKOSC_DOK - self.UCHWYT_ROZMIAR_DOK, self.crop_dok_x2 - pol)
+        self.uchwyt_dok_rt.top = max(0.0, self.crop_dok_y1 - pol)
+        self.uchwyt_dok_lb.left = max(0.0, self.crop_dok_x1 - pol)
+        self.uchwyt_dok_lb.top = min(self.WYSOKOSC_DOK - self.UCHWYT_ROZMIAR_DOK, self.crop_dok_y2 - pol)
+        self.uchwyt_dok_rb.left = min(self.SZEROKOSC_DOK - self.UCHWYT_ROZMIAR_DOK, self.crop_dok_x2 - pol)
+        self.uchwyt_dok_rb.top = min(self.WYSOKOSC_DOK - self.UCHWYT_ROZMIAR_DOK, self.crop_dok_y2 - pol)
+        self.page.update()
+
+    def resetuj_kadr_dok(self):
+        self.crop_dok_x1 = 0.0
+        self.crop_dok_y1 = 0.0
+        self.crop_dok_x2 = float(self.SZEROKOSC_DOK)
+        self.crop_dok_y2 = float(self.WYSOKOSC_DOK)
+        self.kadr_dok_zmieniony = False
+        self._odswiez_pozycje_ramki_dok()
 
     def ustaw_nowy_obraz_dok(self, sciezka: str):
         nowa = os.path.join(config.KATALOG_DANYCH, f"img_dok_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
         shutil.copyfile(sciezka, nowa)
         self.zdjecie_dok["sciezka"] = nowa
         self.podglad_dok.src = nowa
-        self.podglad_dok.visible = True
+        self.ramka_dok.visible = True
         self.wiersz_obrotu_dok.visible = True
         self.btn_start_dok.disabled = False
-        self.status_dok.value = "Zdjęcie załadowane. Kliknij 'Odczytaj tekst dokumentu'."
+        self.resetuj_kadr_dok()
+        self.status_dok.value = "Ustaw ramkę na wybranym fragmencie lub odczytaj całość."
         self.page.update()
 
     async def obroc_dok(self, kat: int):
@@ -769,28 +894,48 @@ class ViewsManager:
         )
         self.zdjecie_dok["sciezka"] = nowa_sciezka
         self.podglad_dok.src = nowa_sciezka
+        self.resetuj_kadr_dok()
         self.status_dok.value = f"Obrócono dokument o {kat}°."
         self.page.update()
 
     async def analizuj_dokument_dok(self, e):
         if not self.zdjecie_dok["sciezka"]:
             return
+
         self.btn_start_dok.disabled = True
         self.pasek_dok.visible = True
-        self.status_dok.value = "Model AI rekonstruuje tekst z zachowaniem układu..."
+        self.status_dok.value = "Odczytywanie dokumentu przez AI..."
         self.page.update()
 
+        loop = asyncio.get_running_loop()
+        sciezka_do_analizy = self.zdjecie_dok["sciezka"]
+
+        if self.kadr_dok_zmieniony:
+            proc_lewo = (self.crop_dok_x1 / self.SZEROKOSC_DOK) * 100.0
+            proc_gora = (self.crop_dok_y1 / self.WYSOKOSC_DOK) * 100.0
+            proc_prawo = ((self.SZEROKOSC_DOK - self.crop_dok_x2) / self.SZEROKOSC_DOK) * 100.0
+            proc_dol = ((self.WYSOKOSC_DOK - self.crop_dok_y2) / self.WYSOKOSC_DOK) * 100.0
+            sciezka_do_analizy = await loop.run_in_executor(
+                None, core.kadruj_plik_graficzny, self.zdjecie_dok["sciezka"],
+                proc_lewo, proc_gora, proc_prawo, proc_dol
+            )
+
         prompt_dok = (
-            "Przepisz CAŁY tekst ze zdjęcia z ZACHOWANIEM DOKŁADNEGO UKŁADU PRZESTRZENNEGO: "
-            "kolumn, wcięć, wierszy i tabel. Nie dodawaj komentarzy, ani znaczników markdown."
+            "Jesteś precyzyjnym systemem OCR do dokumentów biurowych, faktur i specyfikacji.\n"
+            "Przepisz CAŁY tekst widoczny na obrazie z zachowaniem układu:\n"
+            "1. Jeżeli na obrazie występuje tabela, zestawienie kolumnowe lub lista z cenami/ilościami, "
+            "zapisz ją BEZWZGLĘDNIE jako standardową tabelę Markdown (używając pionowych kresek '|' oraz nagłówków '|---|').\n"
+            "2. Zachowaj oryginalne akapity, tytuły i odstępy.\n"
+            "3. Nie dodawaj żadnych własnych komentarzy, wstępów ani znaczników ```markdown. Zwróć sam czysty tekst z tabelami."
         )
+
         try:
             cfg = config.wczytaj_konfiguracje()
-            base64_image = await asyncio.get_running_loop().run_in_executor(
-                None, core.kompresuj_do_base64, self.zdjecie_dok["sciezka"], cfg.get("image_resolution", 1800)
-            )
+            wymiar = cfg.get("image_resolution", 1800)
+            base64_image = await loop.run_in_executor(None, core.kompresuj_do_base64, sciezka_do_analizy, wymiar)
+
             if cfg.get("use_cloud", True):
-                url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                url = "[https://generativelanguage.googleapis.com/v1beta/openai/chat/completions](https://generativelanguage.googleapis.com/v1beta/openai/chat/completions)"
                 headers = {"Authorization": f"Bearer {cfg.get('gemini_api_key', '')}", "Content-Type": "application/json"}
                 payload = {
                     "model": cfg.get("gemini_model", "gemini-2.5-flash"),
@@ -814,14 +959,12 @@ class ViewsManager:
                 res = await client.post(url, headers=headers, json=payload)
                 res.raise_for_status()
                 dane_odp = res.json()
-                self.txt_edytor_dok.value = dane_odp["choices"][0]["message"]["content"].strip()
-                self.txt_edytor_dok.visible = True
-                self.btn_kopiuj_dok.visible = True
-                self.btn_zapisz_dok.visible = True
-                self.status_dok.value = "✅ Sukces! Układ został zrekonstruowany poniżej."
+                surowy_tekst = dane_odp["choices"][0]["message"]["content"].strip()
 
-                uzycie = dane_odp.get("usage") or {}
-                self.ui.dopisz_log(f"Dokument OCR: wejście={uzycie.get('prompt_tokens', '?')}, wyjście={uzycie.get('completion_tokens', '?')}", ft.Colors.CYAN)
+                self.txt_edytor_dok.value = surowy_tekst
+                self.status_dok.value = "✅ Dokument został pomyślnie odczytany."
+                self.ui.bezpiecznie_otworz_dialog(self.dlg_wynik_dok)
+
         except Exception as err:
             self.ui.pokaz_okno_bledu("Błąd odczytu dokumentu", str(err))
         finally:
@@ -831,14 +974,167 @@ class ViewsManager:
 
     async def kopiuj_do_schowka_dok(self, e):
         await ft.Clipboard().set(self.txt_edytor_dok.value)
-        self.status_dok.value = "📋 Skopiowano do schowka!"
-        self.page.update()
+        self.ui.dopisz_log("Skopiowano tekst dokumentu do schowka.", ft.Colors.GREEN)
 
     async def udostepnij_tekst_dok(self, e):
+        if not self.txt_edytor_dok.value:
+            return
         sciezka_txt = os.path.join(config.KATALOG_DANYCH, f"dok_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
         with open(sciezka_txt, "w", encoding="utf-8") as f:
             f.write(self.txt_edytor_dok.value)
         await self.udostepnij_plik(sciezka_txt)
+
+    # --- EKSPORT DO MICROSOFT WORD (.DOCX) ---
+    async def udostepnij_docx_dok(self, e):
+        tekst = (self.txt_edytor_dok.value or "").strip()
+        if not tekst:
+            return
+
+        def generuj_docx():
+            import docx
+            from docx.shared import Pt, Inches
+
+            doc = docx.Document()
+            for sec in doc.sections:
+                sec.top_margin = Inches(0.6)
+                sec.bottom_margin = Inches(0.6)
+                sec.left_margin = Inches(0.6)
+                sec.right_margin = Inches(0.6)
+
+            linie = tekst.splitlines()
+            bufor_tabeli = []
+
+            def zapisz_bufor_tabeli():
+                if not bufor_tabeli:
+                    return
+                wiersze_danych = [w for w in bufor_tabeli if not re.match(r'^\s*\|?\s*[-:]+[-| :]*$', w)]
+                if not wiersze_danych:
+                    bufor_tabeli.clear()
+                    return
+
+                tabela_dane = []
+                for wiersz in wiersze_danych:
+                    komorki = [c.strip() for c in wiersz.strip().strip('|').split('|')]
+                    tabela_dane.append(komorki)
+
+                max_kolumn = max(len(r) for r in tabela_dane)
+                tabela_word = doc.add_table(rows=len(tabela_dane), cols=max_kolumn)
+                tabela_word.style = 'Table Grid'
+
+                for r_idx, wiersz in enumerate(tabela_dane):
+                    for c_idx, wartosc in enumerate(wiersz):
+                        cell = tabela_word.cell(r_idx, c_idx)
+                        p = cell.paragraphs[0]
+                        p.paragraph_format.space_before = Pt(2)
+                        p.paragraph_format.space_after = Pt(2)
+                        run = p.add_run(wartosc)
+                        run.font.name = 'Calibri'
+                        run.font.size = Pt(9.5)
+                        if r_idx == 0:
+                            run.bold = True
+                doc.add_paragraph()
+                bufor_tabeli.clear()
+
+            for linia in linie:
+                l_strip = linia.strip()
+                if l_strip.startswith('|') and l_strip.endswith('|'):
+                    bufor_tabeli.append(l_strip)
+                else:
+                    zapisz_bufor_tabeli()
+                    if l_strip:
+                        p = doc.add_paragraph()
+                        p.paragraph_format.space_before = Pt(1)
+                        p.paragraph_format.space_after = Pt(2)
+                        run = p.add_run(linia)
+                        run.font.name = 'Calibri'
+                        run.font.size = Pt(10.5)
+
+            zapisz_bufor_tabeli()
+            sciezka_docx = os.path.join(config.KATALOG_DANYCH, f"dok_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx")
+            doc.save(sciezka_docx)
+            return sciezka_docx
+
+        try:
+            sciezka_docx = await asyncio.get_running_loop().run_in_executor(None, generuj_docx)
+            await self.udostepnij_plik(sciezka_docx)
+        except Exception as err:
+            self.ui.pokaz_okno_bledu("Błąd eksportu Word", f"Upewnij się, że zainstalowano python-docx:\n{err}")
+
+    # --- EKSPORT DO MICROSOFT EXCEL (.XLSX) ---
+    async def udostepnij_xlsx_dok(self, e):
+        tekst = (self.txt_edytor_dok.value or "").strip()
+        if not tekst:
+            return
+
+        def generuj_xlsx():
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Dokument OCR"
+            ws.views.sheetView[0].showGridLines = True
+
+            czcionka_zwykla = Font(name="Calibri", size=10)
+            ramka_cienka = Border(
+                left=Side(style='thin', color='D9D9D9'),
+                right=Side(style='thin', color='D9D9D9'),
+                top=Side(style='thin', color='D9D9D9'),
+                bottom=Side(style='thin', color='D9D9D9')
+            )
+
+            aktualny_wiersz = 1
+            linie = tekst.splitlines()
+
+            for linia in linie:
+                l_strip = linia.strip()
+                if not l_strip:
+                    aktualny_wiersz += 1
+                    continue
+
+                if re.match(r'^\s*\|?\s*[-:]+[-| :]*$', l_strip):
+                    continue
+
+                if l_strip.startswith('|') and l_strip.endswith('|'):
+                    komorki = [c.strip() for c in l_strip.strip('|').split('|')]
+                elif '\t' in linia:
+                    komorki = [c.strip() for c in linia.split('\t')]
+                else:
+                    komorki = [linia]
+
+                for c_idx, val in enumerate(komorki, start=1):
+                    cell = ws.cell(row=aktualny_wiersz, column=c_idx)
+                    liczba_str = val.replace(" ", "").replace(",", ".")
+                    if re.match(r'^-?\d+(\.\d+)?$', liczba_str):
+                        cell.value = float(liczba_str) if '.' in liczba_str else int(liczba_str)
+                        cell.alignment = Alignment(horizontal="right")
+                    else:
+                        cell.value = val
+                        cell.alignment = Alignment(horizontal="left")
+
+                    cell.font = czcionka_zwykla
+                    cell.border = ramka_cienka
+
+                aktualny_wiersz += 1
+
+            for col in ws.columns:
+                max_len = 0
+                col_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    if cell.value is not None:
+                        max_len = max(max_len, len(str(cell.value)))
+                ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
+
+            sciezka_xlsx = os.path.join(config.KATALOG_DANYCH, f"dok_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+            wb.save(sciezka_xlsx)
+            return sciezka_xlsx
+
+        try:
+            sciezka_xlsx = await asyncio.get_running_loop().run_in_executor(None, generuj_xlsx)
+            await self.udostepnij_plik(sciezka_xlsx)
+        except Exception as err:
+            self.ui.pokaz_okno_bledu("Błąd eksportu Excel", f"Upewnij się, że zainstalowano openpyxl:\n{err}")
 
     async def wybierz_foto_dok(self, e):
         pliki = await self.pickery["foto"].pick_files(allow_multiple=False, file_type=ft.FilePickerFileType.IMAGE)
@@ -1351,8 +1647,8 @@ class ViewsManager:
         self.widok_dokument.visible = (nazwa == "dokument")
         self.widok_skanera.visible = (nazwa == "skaner")
 
-        # 2. Blokada scrolla dla skanera (zero kradzieży dotyku narożników!)
-        if nazwa == "skaner":
+        # 2. Blokada scrolla dla skanera i dokumentu (zero kradzieży dotyku narożników!)
+        if nazwa in ("skaner", "dokument"):
             self.page.scroll = None
         else:
             self.page.scroll = ft.ScrollMode.AUTO
