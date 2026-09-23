@@ -958,7 +958,8 @@ class ViewsManager:
 
         self.btn_start_dok.disabled = True
         self.pasek_dok.visible = True
-        self.status_dok.value = "Odczytywanie dokumentu przez AI..."
+        self.status_dok.value = "Przygotowywanie dokumentu..."
+        self.status_dok.color = ft.Colors.ORANGE_ACCENT
         self.page.update()
 
         loop = asyncio.get_running_loop()
@@ -985,10 +986,57 @@ class ViewsManager:
 
         try:
             cfg = config.wczytaj_konfiguracje()
+            uzywa_chmury = cfg.get("use_cloud", True)
             wymiar = cfg.get("image_resolution", 1800)
+
+            # Obsługa WoL i oczekiwanie na serwer lokalny (jeśli wybrano LM Studio)
+            if not uzywa_chmury:
+                ip_lokalne = cfg.get("local_ip", "192.168.1.154").strip()
+                port_str = cfg.get("local_port", "1234").strip()
+                mac_adres = cfg.get("wol_mac", "").strip()
+                port_lokalny = int(port_str) if port_str.isdigit() else 1234
+
+                self.ui.dopisz_log(f"Sprawdzanie stanu serwera LM Studio ({ip_lokalne}:{port_lokalny})...")
+                serwer_zyje = await core.sprawdz_port_tcp(ip_lokalne, port_lokalny, timeout=3.0)
+                if not serwer_zyje:
+                    self.ui.dopisz_log("Serwer lokalny nie odpowiada. Wysyłanie pingu Wake-on-LAN...", ft.Colors.AMBER)
+                    try:
+                        await loop.run_in_executor(None, core.wyslij_wol, mac_adres, ip_lokalne)
+                        self.ui.dopisz_log("Pakiet WoL wysłany. Czekam na załadowanie LM Studio...", ft.Colors.CYAN)
+                    except Exception as e_wol:
+                        self.ui.dopisz_log(f"Błąd wysyłania WoL: {e_wol}", ft.Colors.RED)
+
+                    maks_czas_oczekiwania = 150
+                    interwal_sprawdzania = 10
+                    czas_miniony = 0
+
+                    while czas_miniony < maks_czas_oczekiwania:
+                        self.status_dok.value = f"Oczekiwanie na uruchomienie serwera... ({czas_miniony}/{maks_czas_oczekiwania}s)"
+                        self.page.update()
+
+                        await asyncio.sleep(interwal_sprawdzania)
+                        czas_miniony += interwal_sprawdzania
+
+                        if czas_miniony % 30 == 0:
+                            try:
+                                await loop.run_in_executor(None, core.wyslij_wol, mac_adres, ip_lokalne)
+                            except Exception:
+                                pass
+
+                        if await core.sprawdz_port_tcp(ip_lokalne, port_lokalny, timeout=3.0):
+                            serwer_zyje = True
+                            self.ui.dopisz_log(f"Serwer LM Studio gotowy po {czas_miniony}s!", ft.Colors.GREEN)
+                            break
+
+                    if not serwer_zyje:
+                        raise TimeoutError(f"Serwer pod adresem {ip_lokalne} nie uruchomił się w czasie {maks_czas_oczekiwania}s.")
+
+            self.status_dok.value = "Odczytywanie dokumentu przez AI..."
+            self.page.update()
+
             base64_image = await loop.run_in_executor(None, core.kompresuj_do_base64, sciezka_do_analizy, wymiar)
 
-            if cfg.get("use_cloud", True):
+            if uzywa_chmury:
                 url = "[https://generativelanguage.googleapis.com/v1beta/openai/chat/completions](https://generativelanguage.googleapis.com/v1beta/openai/chat/completions)"
                 headers = {"Authorization": f"Bearer {cfg.get('gemini_api_key', '')}", "Content-Type": "application/json"}
                 payload = {
@@ -1017,9 +1065,12 @@ class ViewsManager:
 
                 self.txt_edytor_dok.value = surowy_tekst
                 self.status_dok.value = "✅ Dokument został pomyślnie odczytany."
+                self.status_dok.color = ft.Colors.GREEN_ACCENT
                 self.ui.bezpiecznie_otworz_dialog(self.dlg_wynik_dok)
 
         except Exception as err:
+            self.status_dok.value = f"Błąd: {err}"
+            self.status_dok.color = ft.Colors.RED_ACCENT
             self.ui.pokaz_okno_bledu("Błąd odczytu dokumentu", str(err))
         finally:
             self.pasek_dok.visible = False
