@@ -276,23 +276,26 @@ class UIManager:
 
         self.dlg_baza_edycja = ft.AlertDialog(
             modal=True,
+            inset_padding=ft.Padding(10, 20, 10, 20),
             title=ft.Text("📦 Baza i Edycja Powiązań"),
-            content=ft.Column(
-                [
-                    ft.Text("Dodaj wzorzec towaru (np. BANAN -> 4001):", size=12, color=ft.Colors.GREY_400),
-                    ft.Row([self.txt_nowy_wzorzec, self.txt_nowy_kod]),
-                    ft.Button(
-                        content=ft.Row([ft.Icon(ft.Icons.ADD), ft.Text("Zapisz powiązanie")], alignment=ft.MainAxisAlignment.CENTER),
-                        style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE),
-                        on_click=dodaj_nowe_mapowanie
-                    ),
-                    ft.Divider(),
-                    self.txt_filtr_bazy,
-                    self.lista_mapowan_view
-                ],
-                tight=True,
-                width=360,
-                spacing=10
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Dodaj wzorzec towaru (np. BANAN -> 4001):", size=12, color=ft.Colors.GREY_400),
+                        ft.Row([self.txt_nowy_wzorzec, self.txt_nowy_kod], spacing=10),
+                        ft.Button(
+                            content=ft.Row([ft.Icon(ft.Icons.ADD), ft.Text("Zapisz powiązanie")], alignment=ft.MainAxisAlignment.CENTER),
+                            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE),
+                            on_click=dodaj_nowe_mapowanie
+                        ),
+                        ft.Divider(),
+                        self.txt_filtr_bazy,
+                        self.lista_mapowan_view
+                    ],
+                    tight=True,
+                    spacing=10
+                ),
+                width=1000
             ),
             actions=[ft.Button(content=ft.Text("Zamknij"), on_click=lambda e: self.page.pop_dialog())]
         )
@@ -811,20 +814,29 @@ class UIManager:
         )
 
         # Wyszukiwarka w locie
-        self.lista_wyszukiwarki = ft.ListView(expand=True, spacing=5, height=350)
+        self.lista_wyszukiwarki = ft.ListView(expand=True, spacing=6)
         self.pole_szukaj_towaru = ft.TextField(
-            label="Wpisz nazwę lub kod z PC-Market...",
+            label="🔍 Wpisz nazwę lub kod z PC-Market...",
             dense=True,
             on_change=lambda e: self.filtruj_wyszukiwarke()
         )
 
         self.dlg_wyszukiwarka = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Baza PC-Market"),
+            inset_padding=ft.Padding(10, 16, 10, 16),
+            title=ft.Text("🔍 Baza towarowa PC-Market", size=18, weight=ft.FontWeight.BOLD),
             content=ft.Container(
-                content=ft.Column([self.pole_szukaj_towaru, self.lista_wyszukiwarki], tight=True),
-                width=380,
-                height=450
+                content=ft.Column(
+                    [
+                        self.pole_szukaj_towaru,
+                        ft.Divider(height=1, color=ft.Colors.GREY_800),
+                        self.lista_wyszukiwarki
+                    ],
+                    expand=True,
+                    spacing=8
+                ),
+                width=1000,
+                height=560
             ),
             actions=[
                 ft.Button("Wróć do edycji", on_click=lambda e: self.bezpiecznie_otworz_dialog(self.dlg_edycja_pozycji))
@@ -841,21 +853,49 @@ class UIManager:
             if self.views_manager:
                 self.views_manager.anuluj_weryfikacje()
 
+        # Estetyczna górna belka podsumowania ze statystykami
+        self.lbl_podsumowanie_weryfikacji.size = 12
+        self.lbl_podsumowanie_weryfikacji.color = ft.Colors.GREEN_200
+
+        self.belka_statusu_weryfikacji = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.Icons.RECEIPT_LONG, size=20, color=ft.Colors.GREEN_400),
+                ft.Container(content=self.lbl_podsumowanie_weryfikacji, expand=True)
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.Padding(10, 8, 10, 8),
+            bgcolor=ft.Colors.GREY_900,
+            border_radius=8,
+            border=ft.Border.all(1, ft.Colors.GREEN_900)
+        )
+
+        # Główny pełnoekranowy dialog weryfikacji PZ
         self.dlg_weryfikacja = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Weryfikacja pozycji PZ"),
+            inset_padding=ft.Padding(8, 14, 8, 14),
+            title=ft.Row([
+                ft.Icon(ft.Icons.FACT_CHECK, color=ft.Colors.GREEN_400, size=24),
+                ft.Text("Weryfikacja pozycji PZ", size=18, weight=ft.FontWeight.BOLD)
+            ], spacing=8),
             content=ft.Container(
                 content=ft.Column([
-                    self.lbl_podsumowanie_weryfikacji,
+                    self.belka_statusu_weryfikacji,
                     ft.Divider(height=1, color=ft.Colors.GREY_800),
                     self.lista_pozycji_weryfikacji
-                ], tight=True),
-                width=380,
-                height=460
+                ], expand=True, spacing=8),
+                width=1000,
+                height=580
             ),
             actions=[
-                ft.Button("Anuluj", color=ft.Colors.RED_400, on_click=klik_anuluj_weryfikacje),
-                ft.Button("Zatwierdź i Generuj", style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE), on_click=klik_zatwierdz_weryfikacje)
+                ft.Button(
+                    "Anuluj",
+                    color=ft.Colors.RED_400,
+                    on_click=klik_anuluj_weryfikacje
+                ),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.CHECK_CIRCLE, size=18), ft.Text("Zatwierdź i Generuj", weight=ft.FontWeight.BOLD)], spacing=6),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, padding=12),
+                    on_click=klik_zatwierdz_weryfikacje
+                )
             ]
         )
 
