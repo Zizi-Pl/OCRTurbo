@@ -1,7 +1,7 @@
 [project]
-name = "ocrlmm"
+name = "OCRTurbo"
 version = "2.0.0"
-description = "Skaner PZ do EDI"
+description = "Skaner PZ do EDI i inne"
 requires-python = ">=3.11"
 dependencies = [
     "flet==0.85.3",
