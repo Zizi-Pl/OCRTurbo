@@ -852,7 +852,7 @@ class ViewsManager:
     # =========================================================================
     def _inicjalizuj_modul_skanera(self):
         self.SZEROKOSC_SKAN = 320
-        self.WYSOKOSC_SKAN = 420
+        self.WYSOKOSC_SKAN = 280
         self.UCHWYT_ROZMIAR = 48  # Większy obszar dotykowy dla wygody palca
 
         # Współrzędne ramki w pikselach
@@ -1002,42 +1002,43 @@ class ViewsManager:
         ], visible=False, spacing=10, tight=True)  # <--- dodany tight=True
 
         # Przewijalny dolny panel narzędziowy dla skanera
+        # Przewijalny dolny panel narzędziowy dla skanera
         self.dolny_panel_skanera = ft.ListView(
             controls=[
                 self.wiersz_obrotu_skan,
                 self.kontener_akcji_skanu
             ],
-            spacing=10,
+            spacing=8,
             expand=True,
-            padding=ft.Padding(0, 5, 0, 20)
+            padding=ft.Padding(0, 4, 0, 30)
         )
 
         self.widok_skanera = ft.Column([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
                 ft.Column([
-                    ft.Text("Szybki Skaner Graficzny", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_400),
+                    ft.Text("Szybki Skaner Graficzny", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_400),
                     ft.Text("Złap rogi lub przesuń cały kadr za środek", size=11, color=ft.Colors.GREY_400)
                 ], spacing=1)
             ]),
             ft.Row([
                 ft.Button(
                     content=ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("Galeria", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                    height=48, expand=True,
+                    height=44, expand=True,
                     style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=self.wybierz_foto_skan
                 ),
                 ft.Button(
                     content=ft.Row([ft.Icon(ft.Icons.CAMERA_ALT), ft.Text("Aparat", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                    height=48, expand=True,
+                    height=44, expand=True,
                     style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("skaner"))
                 )
-            ], spacing=10),
+            ], spacing=8),
             self.status_skan,
-            self.ramka_skanera,         # Nieruchomy podgląd - gesty rogów i środka łapią natychmiast!
-            self.dolny_panel_skanera    # Niezależny dolny scroll dla przycisków
-        ], spacing=8, expand=True, visible=False)
+            self.ramka_skanera,         # Teraz ma tylko 280px wysokości
+            self.dolny_panel_skanera    # Ma mnóstwo miejsca i od razu pokazuje przyciski
+        ], spacing=6, expand=True, visible=False)
 
     def _pobierz_deltas(self, e):
         dx = getattr(e, "delta", None)
