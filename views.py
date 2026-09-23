@@ -125,7 +125,6 @@ class ViewsManager:
         )
 
         self.btn_baza_ikona = ft.IconButton(icon=ft.Icons.STORAGE, tooltip="Baza i powiązania towarów", on_click=self.ui.otworz_okno_bazy_recznej)
-        self.btn_settings = ft.IconButton(icon=ft.Icons.SETTINGS, tooltip="Ustawienia połączenia", on_click=self.ui.otworz_ustawienia)
         self.btn_konsola = ft.IconButton(icon=ft.Icons.TERMINAL, tooltip="Konsola zdarzeń (logi)", on_click=self.ui.otworz_konsole)
 
         pasek_tytulu_pz = ft.Row(
@@ -133,11 +132,11 @@ class ViewsManager:
                 ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK, tooltip="Menu Główne", on_click=lambda e: self.przelacz_widok("menu")),
                     ft.Column([
-                        ft.Text("ocrLmm Mobile", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
-                        ft.Text("Skaner PZ do EDI (PC-Market)", size=12, color=ft.Colors.GREY_400)
-                    ], spacing=2)
-                ]),
-                ft.Row([self.btn_baza_ikona, self.btn_konsola, self.btn_settings], spacing=0)
+                        ft.Text("ocrLmm Mobile", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
+                        ft.Text("Skaner PZ (PC-Market)", size=11, color=ft.Colors.GREY_400)
+                    ], spacing=1)
+                ], spacing=4, expand=True),
+                ft.Row([self.btn_baza_ikona, self.btn_konsola], spacing=0)
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN
         )
@@ -849,12 +848,12 @@ class ViewsManager:
             self.ustaw_nowy_obraz_dok(pliki[0].path)
 
     # =========================================================================
-    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (DOTYKOWE KADROWANIE NAROŻNIKAMI)
+    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (DOTYK, PRZESUWANIE ŚRODKIEM, COFANIE)
     # =========================================================================
     def _inicjalizuj_modul_skanera(self):
         self.SZEROKOSC_SKAN = 320
         self.WYSOKOSC_SKAN = 420
-        self.UCHWYT_ROZMIAR = 36
+        self.UCHWYT_ROZMIAR = 48  # Większy obszar dotykowy dla wygody palca
 
         # Współrzędne ramki w pikselach
         self.crop_x1 = 0.0
@@ -862,6 +861,10 @@ class ViewsManager:
         self.crop_x2 = float(self.SZEROKOSC_SKAN)
         self.crop_y2 = float(self.WYSOKOSC_SKAN)
 
+        # Historia kroków do cofania
+        self.historia_skan = []
+        self.ostatni_aktywny_filtr = None
+        
         self.podglad_skan = ft.Image(
             src=config.PUSTY_OBRAZ,
             fit="fill",
@@ -869,53 +872,55 @@ class ViewsManager:
             height=self.WYSOKOSC_SKAN
         )
 
-        # Maski zaciemniające odrzucony kadr
+        # Maski zaciemniające
         self.maska_gora = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, left=0, width=self.SZEROKOSC_SKAN, height=0)
         self.maska_dol = ft.Container(bgcolor=ft.Colors.BLACK54, bottom=0, left=0, width=self.SZEROKOSC_SKAN, height=0)
         self.maska_lewo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, left=0, width=0)
         self.maska_prawo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, right=0, width=0)
-        self.ramka_ciecia = ft.Container(
-            border=ft.Border.all(2.0, ft.Colors.ORANGE_ACCENT),
+
+        # Środek ramki – dotyk i przesuwanie całego kadru
+        self.strefa_srodka = ft.GestureDetector(
+            content=ft.Container(
+                border=ft.Border.all(2.0, ft.Colors.ORANGE_ACCENT),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ORANGE_ACCENT)
+            ),
+            drag_interval=10,
+            on_pan_update=lambda e: self._przesun_caly_kadr(*self._pobierz_deltas(e)),
             top=0, left=0, width=self.SZEROKOSC_SKAN, height=self.WYSOKOSC_SKAN
         )
 
-        # 4 narożniki do przeciągania palcem
+        # 4 narożniki dotykowe
         def stworz_uchwyt():
             return ft.Container(
+                alignment=ft.Alignment(0, 0),
+                content=ft.Container(
+                    width=28, height=28,
+                    bgcolor=ft.Colors.ORANGE_ACCENT,
+                    border_radius=14,
+                    border=ft.Border.all(2.5, ft.Colors.WHITE)
+                ),
                 width=self.UCHWYT_ROZMIAR,
-                height=self.UCHWYT_ROZMIAR,
-                bgcolor=ft.Colors.ORANGE_ACCENT,
-                border_radius=self.UCHWYT_ROZMIAR / 2,
-                border=ft.Border.all(2, ft.Colors.WHITE)
+                height=self.UCHWYT_ROZMIAR
             )
 
-        def pobierz_deltas(e):
-            dx = getattr(e, "delta", None)
-            if dx is not None:
-                return e.delta.x, e.delta.y
-            loc = getattr(e, "local_delta", None)
-            if loc is not None:
-                return e.local_delta.x, e.local_delta.y
-            return getattr(e, "delta_x", 0.0), getattr(e, "delta_y", 0.0)
-
         self.uchwyt_lt = ft.GestureDetector(
-            content=stworz_uchwyt(),
-            on_pan_update=lambda e: self._przesun_uchwyt("lt", *pobierz_deltas(e)),
+            content=stworz_uchwyt(), drag_interval=10,
+            on_pan_update=lambda e: self._przesun_uchwyt("lt", *self._pobierz_deltas(e)),
             top=0, left=0
         )
         self.uchwyt_rt = ft.GestureDetector(
-            content=stworz_uchwyt(),
-            on_pan_update=lambda e: self._przesun_uchwyt("rt", *pobierz_deltas(e)),
+            content=stworz_uchwyt(), drag_interval=10,
+            on_pan_update=lambda e: self._przesun_uchwyt("rt", *self._pobierz_deltas(e)),
             top=0, left=self.SZEROKOSC_SKAN - self.UCHWYT_ROZMIAR
         )
         self.uchwyt_lb = ft.GestureDetector(
-            content=stworz_uchwyt(),
-            on_pan_update=lambda e: self._przesun_uchwyt("lb", *pobierz_deltas(e)),
+            content=stworz_uchwyt(), drag_interval=10,
+            on_pan_update=lambda e: self._przesun_uchwyt("lb", *self._pobierz_deltas(e)),
             top=self.WYSOKOSC_SKAN - self.UCHWYT_ROZMIAR, left=0
         )
         self.uchwyt_rb = ft.GestureDetector(
-            content=stworz_uchwyt(),
-            on_pan_update=lambda e: self._przesun_uchwyt("rb", *pobierz_deltas(e)),
+            content=stworz_uchwyt(), drag_interval=10,
+            on_pan_update=lambda e: self._przesun_uchwyt("rb", *self._pobierz_deltas(e)),
             top=self.WYSOKOSC_SKAN - self.UCHWYT_ROZMIAR, left=self.SZEROKOSC_SKAN - self.UCHWYT_ROZMIAR
         )
 
@@ -923,7 +928,7 @@ class ViewsManager:
             content=ft.Stack([
                 self.podglad_skan,
                 self.maska_gora, self.maska_dol, self.maska_lewo, self.maska_prawo,
-                self.ramka_ciecia,
+                self.strefa_srodka,
                 self.uchwyt_lt, self.uchwyt_rt, self.uchwyt_lb, self.uchwyt_rb
             ]),
             width=self.SZEROKOSC_SKAN,
@@ -950,21 +955,28 @@ class ViewsManager:
             )
         ], spacing=10, visible=False)
 
-        # Przyciski filtrów o pełnej szerokości dotykowej
+        # Przycisk cofania ostatniego nałożonego efektu
+        self.btn_cofnij_filtr = ft.Button(
+            "Cofnij ostatni krok", icon=ft.Icons.UNDO, height=48, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            disabled=True,
+            on_click=self.cofnij_ostatni_krok_skan
+        )
+
         self.btn_filtr_bw = ft.Button(
-            "Czarno-Biały (B&W)", height=48, expand=True,
+            "B&W", height=48, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: asyncio.create_task(self.filtruj_skan("bw"))
+            on_click=lambda e: asyncio.create_task(self.przelacz_filtr_skan("bw"))
         )
         self.btn_filtr_szary = ft.Button(
-            "Szary Kontrast", height=48, expand=True,
+            "Szary", height=48, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: asyncio.create_task(self.filtruj_skan("szary"))
+            on_click=lambda e: asyncio.create_task(self.przelacz_filtr_skan("szary"))
         )
         self.btn_filtr_wyostrz = ft.Button(
-            "Wyostrz", height=48,
+            "Wyostrz", height=48, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_900, shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: asyncio.create_task(self.filtruj_skan("wyostrz"))
+            on_click=lambda e: asyncio.create_task(self.przelacz_filtr_skan("wyostrz"))
         )
 
         self.kontener_akcji_skanu = ft.Column([
@@ -975,9 +987,10 @@ class ViewsManager:
                 on_click=self.przytnij_zaznaczenie
             ),
             ft.Divider(height=16),
-            ft.Text("Filtry kontrastowe (czarno-białe / wyostrzanie):", size=12, weight=ft.FontWeight.BOLD),
+            ft.Text("Filtry kontrastowe (kliknij ponownie ten sam, by go cofnąć):", size=12, weight=ft.FontWeight.BOLD),
             ft.Row([self.btn_filtr_bw, self.btn_filtr_szary], spacing=8),
             ft.Row([self.btn_filtr_wyostrz]),
+            ft.Row([self.btn_cofnij_filtr]),
             ft.Divider(height=16),
             ft.Button(
                 content=ft.Row([ft.Icon(ft.Icons.SHARE, size=24), ft.Text("Udostępnij gotowy skan", size=16, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
@@ -985,7 +998,7 @@ class ViewsManager:
                 style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
                 on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
             ),
-            ft.Container(height=40)  # Margines bezpieczeństwa przed paskiem Androida
+            ft.Container(height=40)
         ], visible=False, spacing=10)
 
         self.widok_skanera = ft.Column([
@@ -993,7 +1006,7 @@ class ViewsManager:
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
                 ft.Column([
                     ft.Text("Szybki Skaner Graficzny", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_400),
-                    ft.Text("Dotknij i przeciągnij pomarańczowe punkty", size=12, color=ft.Colors.GREY_400)
+                    ft.Text("Złap rogi lub przesuń cały kadr za środek", size=12, color=ft.Colors.GREY_400)
                 ], spacing=2)
             ]),
             ft.Row([
@@ -1016,6 +1029,15 @@ class ViewsManager:
             self.kontener_akcji_skanu
         ], spacing=10, visible=False)
 
+    def _pobierz_deltas(self, e):
+        dx = getattr(e, "delta", None)
+        if dx is not None:
+            return e.delta.x, e.delta.y
+        loc = getattr(e, "local_delta", None)
+        if loc is not None:
+            return e.local_delta.x, e.local_delta.y
+        return getattr(e, "delta_x", 0.0), getattr(e, "delta_y", 0.0)
+
     def _przesun_uchwyt(self, ktory: str, dx: float, dy: float):
         min_rozmiar = 40.0
         if ktory == "lt":
@@ -1033,16 +1055,39 @@ class ViewsManager:
 
         self._odswiez_pozycje_ramki()
 
+    def _przesun_caly_kadr(self, dx: float, dy: float):
+        szerokosc = self.crop_x2 - self.crop_x1
+        wysokosc = self.crop_y2 - self.crop_y1
+
+        nowe_x1 = self.crop_x1 + dx
+        nowe_y1 = self.crop_y1 + dy
+
+        if nowe_x1 < 0:
+            nowe_x1 = 0
+        elif nowe_x1 + szerokosc > self.SZEROKOSC_SKAN:
+            nowe_x1 = self.SZEROKOSC_SKAN - szerokosc
+
+        if nowe_y1 < 0:
+            nowe_y1 = 0
+        elif nowe_y1 + wysokosc > self.WYSOKOSC_SKAN:
+            nowe_y1 = self.WYSOKOSC_SKAN - wysokosc
+
+        self.crop_x1 = nowe_x1
+        self.crop_y1 = nowe_y1
+        self.crop_x2 = nowe_x1 + szerokosc
+        self.crop_y2 = nowe_y1 + wysokosc
+
+        self._odswiez_pozycje_ramki()
+
     def _odswiez_pozycje_ramki(self):
         w = max(1.0, self.crop_x2 - self.crop_x1)
         h = max(1.0, self.crop_y2 - self.crop_y1)
 
-        self.ramka_ciecia.left = self.crop_x1
-        self.ramka_ciecia.top = self.crop_y1
-        self.ramka_ciecia.width = w
-        self.ramka_ciecia.height = h
+        self.strefa_srodka.left = self.crop_x1
+        self.strefa_srodka.top = self.crop_y1
+        self.strefa_srodka.width = w
+        self.strefa_srodka.height = h
 
-        # Maski przyciemniające
         self.maska_gora.height = self.crop_y1
         self.maska_dol.top = self.crop_y2
         self.maska_dol.height = max(0.0, self.WYSOKOSC_SKAN - self.crop_y2)
@@ -1056,7 +1101,6 @@ class ViewsManager:
         self.maska_prawo.left = self.crop_x2
         self.maska_prawo.width = max(0.0, self.SZEROKOSC_SKAN - self.crop_x2)
 
-        # Pozycje 4 uchwytów narożnych
         pol = self.UCHWYT_ROZMIAR / 2
         self.uchwyt_lt.left = max(0.0, self.crop_x1 - pol)
         self.uchwyt_lt.top = max(0.0, self.crop_y1 - pol)
@@ -1075,9 +1119,14 @@ class ViewsManager:
     def ustaw_nowy_obraz_skan(self, sciezka: str):
         nowa = os.path.join(config.KATALOG_DANYCH, f"img_skan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
         shutil.copyfile(sciezka, nowa)
-        self.zdjecie_skan["oryginal"] = nowa
-        self.zdjecie_skan["sciezka"] = nowa
-        self.podglad_skan.src = nowa
+        self.zdjecie_skan["oryginal"] = str(nowa)
+        self.zdjecie_skan["sciezka"] = str(nowa)
+        self.historia_skan = []
+        self.ostatni_aktywny_filtr = None
+        self.btn_cofnij_filtr.disabled = True
+
+        self.podglad_skan.src_base64 = None
+        self.podglad_skan.src = str(nowa)
         self.ramka_skanera.visible = True
         self.kontener_akcji_skanu.visible = True
         self.wiersz_obrotu_skan.visible = True
@@ -1088,18 +1137,22 @@ class ViewsManager:
         self.crop_y2 = float(self.WYSOKOSC_SKAN)
         self._odswiez_pozycje_ramki()
 
-        self.status_skan.value = "Przeciągaj pomarańczowe punkty, by zaznaczyć kadr."
+        self.status_skan.value = "Przeciągaj punkty narożne lub złap za środek, aby przesunąć kadr."
         self.page.update()
 
     async def obroc_skan(self, kat: int):
         if not self.zdjecie_skan["sciezka"] or not os.path.exists(self.zdjecie_skan["sciezka"]):
             return
         nowa_sciezka = await asyncio.get_running_loop().run_in_executor(
-            None, core.obroc_plik_graficzny, self.zdjecie_skan["sciezka"], kat, "rot_skan"
+            None, core.obroc_plik_graficzny, str(self.zdjecie_skan["sciezka"]), kat, "rot_skan"
         )
-        self.zdjecie_skan["sciezka"] = nowa_sciezka
-        self.zdjecie_skan["oryginal"] = nowa_sciezka
-        self.podglad_skan.src = nowa_sciezka
+        self.zdjecie_skan["sciezka"] = str(nowa_sciezka)
+        self.zdjecie_skan["oryginal"] = str(nowa_sciezka)
+        self.historia_skan = []
+        self.ostatni_aktywny_filtr = None
+        self.btn_cofnij_filtr.disabled = True
+        self.podglad_skan.src_base64 = None
+        self.podglad_skan.src = str(nowa_sciezka)
 
         self.crop_x1 = 0.0
         self.crop_y1 = 0.0
@@ -1119,13 +1172,20 @@ class ViewsManager:
         proc_prawo = ((self.SZEROKOSC_SKAN - self.crop_x2) / self.SZEROKOSC_SKAN) * 100.0
         proc_dol = ((self.WYSOKOSC_SKAN - self.crop_y2) / self.WYSOKOSC_SKAN) * 100.0
 
+        # Zapisujemy stan sprzed przycięcia jako stringi w krotce
+        self.historia_skan.append((str(self.zdjecie_skan["sciezka"]), str(self.zdjecie_skan["oryginal"])))
+        self.btn_cofnij_filtr.disabled = False
+        self.ostatni_aktywny_filtr = None
+
         nowa_sciezka = await asyncio.get_running_loop().run_in_executor(
-            None, core.kadruj_plik_graficzny, self.zdjecie_skan["oryginal"],
+            None, core.kadruj_plik_graficzny, str(self.zdjecie_skan["oryginal"]),
             proc_lewo, proc_gora, proc_prawo, proc_dol
         )
-        self.zdjecie_skan["sciezka"] = nowa_sciezka
-        self.zdjecie_skan["oryginal"] = nowa_sciezka
-        self.podglad_skan.src = nowa_sciezka
+
+        self.zdjecie_skan["sciezka"] = str(nowa_sciezka)
+        self.zdjecie_skan["oryginal"] = str(nowa_sciezka)
+        self.podglad_skan.src_base64 = None
+        self.podglad_skan.src = str(nowa_sciezka)
 
         self.crop_x1 = 0.0
         self.crop_y1 = 0.0
@@ -1133,18 +1193,61 @@ class ViewsManager:
         self.crop_y2 = float(self.WYSOKOSC_SKAN)
         self._odswiez_pozycje_ramki()
 
-        self.status_skan.value = "✅ Przycięto kadr! Możesz nałożyć filtr lub udostępnić."
+        self.status_skan.value = "✅ Przycięto kadr! Możesz nakładać filtry lub cofnąć cięcie."
         self.page.update()
 
-    async def filtruj_skan(self, typ: str):
+    async def przelacz_filtr_skan(self, typ: str):
         if not self.zdjecie_skan["sciezka"]:
             return
+
+        # 1. Jeśli kliknięto ponownie TEN SAM filtr -> bezpieczne cofnięcie
+        if self.ostatni_aktywny_filtr == typ and self.historia_skan:
+            self.cofnij_ostatni_krok_skan(None)
+            return
+
+        # 2. Zapisz bieżący stan na stosie
+        self.historia_skan.append((str(self.zdjecie_skan["sciezka"]), str(self.zdjecie_skan["oryginal"])))
+        self.btn_cofnij_filtr.disabled = False
+
+        # 3. Nałóż filtr (pewny czysty string dla Pillow)
+        sciezka_do_filtru = str(self.zdjecie_skan["sciezka"])
         nowa_sciezka = await asyncio.get_running_loop().run_in_executor(
-            None, core.filtruj_plik_graficzny, self.zdjecie_skan["sciezka"], typ
+            None, core.filtruj_plik_graficzny, sciezka_do_filtru, typ
         )
-        self.zdjecie_skan["sciezka"] = nowa_sciezka
-        self.podglad_skan.src = nowa_sciezka
-        self.status_skan.value = f"✅ Zastosowano filtr: {typ}."
+
+        self.zdjecie_skan["sciezka"] = str(nowa_sciezka)
+        self.podglad_skan.src_base64 = None
+        self.podglad_skan.src = str(nowa_sciezka)
+        self.ostatni_aktywny_filtr = typ
+        self.status_skan.value = f"✅ Zastosowano filtr: {typ} (kliknij ponownie ten sam, by go cofnąć)."
+        self.page.update()
+
+    def cofnij_ostatni_krok_skan(self, e=None):
+        if not self.historia_skan:
+            return
+
+        # Rozpakowujemy krotkę do dwóch niezależnych stringów
+        poprzednia_sciezka, poprzedni_oryginal = self.historia_skan.pop()
+
+        czy_cofamy_przyciecie = (str(self.zdjecie_skan["oryginal"]) != str(poprzedni_oryginal))
+
+        self.zdjecie_skan["sciezka"] = str(poprzednia_sciezka)
+        self.zdjecie_skan["oryginal"] = str(poprzedni_oryginal)
+        self.podglad_skan.src_base64 = None
+        self.podglad_skan.src = str(poprzednia_sciezka)
+
+        if czy_cofamy_przyciecie:
+            self.crop_x1 = 0.0
+            self.crop_y1 = 0.0
+            self.crop_x2 = float(self.SZEROKOSC_SKAN)
+            self.crop_y2 = float(self.WYSOKOSC_SKAN)
+            self._odswiez_pozycje_ramki()
+            self.status_skan.value = "↩️ Cofnięto przycięcie kadru."
+        else:
+            self.status_skan.value = "↩️ Cofnięto ostatni filtr."
+
+        self.ostatni_aktywny_filtr = None
+        self.btn_cofnij_filtr.disabled = (len(self.historia_skan) == 0)
         self.page.update()
 
     async def wybierz_foto_skan(self, e):
