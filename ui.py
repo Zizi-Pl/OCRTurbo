@@ -32,12 +32,13 @@ class UIManager:
 
         # Aparat
         self.cel_aparatu = {"modul": "pz"}
-        self.aktualna_kamera = {"instancja": None}
+        self.kamera_obiektyw = fc.Camera(expand=True)
+        self.page.on_view_pop = lambda e: asyncio.create_task(self.zamknij_pelny_ekran_aparatu())
 
         # Inicjalizacja komponentów
         self._inicjalizuj_alert_dialog()
         self._inicjalizuj_konsole_logow()
-        self._inicjalizuj_kamera_dialog()
+        
         self._inicjalizuj_okno_mapowan()
         self._inicjalizuj_okno_ustawien()
         self._inicjalizuj_okno_weryfikacji()
@@ -131,77 +132,118 @@ class UIManager:
     def otworz_konsole(self, e=None):
         self.bezpiecznie_otworz_dialog(self.dlg_konsola)
 
-    # --- OBSŁUGA APARATU (flet_camera) ---
-    def _inicjalizuj_kamera_dialog(self):
-        self.kontener_kamery = ft.Container(expand=True)
+    # --- OBSŁUGA APARATU 1:1 Z MAIN (PEŁNY EKRAN + DOTYKOWA MIGAWKA) ---
+    def aparat_obslugiwany(self) -> bool:
+        return bool(self.page.web) or self.page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
 
-        async def zrob_zdjecie_aparatu(e):
-            try:
-                cam = self.aktualna_kamera["instancja"]
-                if not cam:
-                    return
-                dane_b64 = await cam.take_picture()
-                if not dane_b64:
-                    self.pokaz_okno_bledu("Błąd aparatu", "Nie udało się pobrać klatki z aparatu.")
-                    return
+    async def zamknij_pelny_ekran_aparatu(self, e=None):
+        try:
+            await self.kamera_obiektyw.dispose()
+        except Exception:
+            pass
 
-                self.zamknij_kazdy_dialog()
-                nazwa_pliku = f"foto_cam_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                sciezka_zapisu = os.path.join(config.KATALOG_DANYCH, nazwa_pliku)
+        if len(self.page.views) > 1:
+            self.page.views.pop()
+            self.page.update()
 
-                import base64
-                if "," in dane_b64:
-                    dane_b64 = dane_b64.split(",", 1)[1]
-                bajty_foto = base64.b64decode(dane_b64)
+    async def klik_migawka(self, e=None):
+        try:
+            dane_zdjecia = await self.kamera_obiektyw.take_picture()
+            if not isinstance(dane_zdjecia, (bytes, bytearray)):
+                raise ValueError(f"Aparat zwrócił nieoczekiwany typ: {type(dane_zdjecia).__name__}")
 
-                with open(sciezka_zapisu, "wb") as f:
-                    f.write(bajty_foto)
+            nazwa_pliku = f"foto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            sciezka_zapisu = os.path.join(config.KATALOG_DANYCH, nazwa_pliku)
 
-                self.aktualna_kamera["instancja"] = None
-                if self.on_foto_captured:
-                    self.on_foto_captured(sciezka_zapisu, self.cel_aparatu["modul"])
+            with open(sciezka_zapisu, "wb") as f:
+                f.write(dane_zdjecia)
 
-            except Exception as err_cam:
-                self.pokaz_okno_bledu("Błąd robienia zdjęcia", str(err_cam))
+            await self.zamknij_pelny_ekran_aparatu()
 
-        self.dlg_kamera = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Aparat fotograficzny"),
-            content=ft.Container(content=self.kontener_kamery, width=360, height=480),
-            actions=[
-                ft.Button("Anuluj", on_click=lambda e: (setattr(self.aktualna_kamera, 'instancja', None), self.zamknij_kazdy_dialog())),
-                ft.Button(
-                    content=ft.Row([ft.Icon(ft.Icons.CAMERA), ft.Text("Zrób zdjęcie")]),
-                    style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE),
-                    on_click=zrob_zdjecie_aparatu
-                )
-            ]
-        )
+            if self.on_foto_captured:
+                self.on_foto_captured(sciezka_zapisu, self.cel_aparatu["modul"])
+
+        except Exception as err:
+            self.dopisz_log(f"Błąd migawki: {err}", ft.Colors.RED)
+            self.pokaz_okno_bledu("Błąd aparatu", f"Nie udało się zrobić zdjęcia: {err}")
 
     async def otworz_aparat_dla(self, modul: str):
         self.cel_aparatu["modul"] = modul
-        platforma = getattr(self.page, "platform", None)
-        czy_wspiera = platforma in [
-            ft.PagePlatform.ANDROID,
-            ft.PagePlatform.IOS,
-            None
-        ]
 
-        if not czy_wspiera:
-            self.dopisz_log("Wykryto system desktopowy - otwarto wybór pliku zamiast kamery.", ft.Colors.AMBER)
-            pliki = await self.pickery["foto"].pick_files(allow_multiple=False, file_type=ft.FilePickerFileType.IMAGE)
-            if pliki and len(pliki) > 0 and pliki[0].path:
-                if self.on_foto_captured:
-                    self.on_foto_captured(pliki[0].path, modul)
+        if not self.aparat_obslugiwany():
+            self.dopisz_log("Aparat działa tylko na Android/iOS. Wybór z pliku...", ft.Colors.AMBER)
+            picker_foto = self.pickery.get("foto")
+            if picker_foto:
+                pliki = await picker_foto.pick_files(allow_multiple=False, file_type=ft.FilePickerFileType.IMAGE)
+                if pliki and len(pliki) > 0 and pliki[0].path:
+                    if self.on_foto_captured:
+                        self.on_foto_captured(pliki[0].path, modul)
             return
 
         try:
-            nowa_kamera = fc.Camera(expand=True)
-            self.aktualna_kamera["instancja"] = nowa_kamera
-            self.kontener_kamery.content = nowa_kamera
-            self.bezpiecznie_otworz_dialog(self.dlg_kamera)
-        except Exception as err_init_cam:
-            self.pokaz_okno_bledu("Błąd inicjalizacji aparatu", str(err_init_cam))
+            widok_aparatu = ft.View(
+                route="/aparat",
+                controls=[
+                    ft.Stack([
+                        ft.GestureDetector(
+                            content=self.kamera_obiektyw,
+                            on_tap=lambda ev: asyncio.create_task(self.klik_migawka(ev)),
+                            expand=True
+                        ),
+                        ft.Container(
+                            content=ft.Button(
+                                "Anuluj",
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE),
+                                on_click=lambda ev: asyncio.create_task(self.zamknij_pelny_ekran_aparatu(ev))
+                            ),
+                            top=40,
+                            right=20
+                        ),
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    ft.Text(
+                                        "Stuknij w dowolne miejsce, aby zrobić zdjęcie",
+                                        color=ft.Colors.WHITE70,
+                                        size=14,
+                                        text_align=ft.TextAlign.CENTER
+                                    )
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER
+                            ),
+                            bottom=30,
+                            left=0,
+                            right=0
+                        )
+                    ], expand=True)
+                ],
+                padding=0,
+                bgcolor=ft.Colors.BLACK
+            )
+
+            self.page.views.append(widok_aparatu)
+            self.page.update()
+
+            kamery = await asyncio.wait_for(self.kamera_obiektyw.get_available_cameras(), timeout=10)
+            if not kamery:
+                await self.zamknij_pelny_ekran_aparatu()
+                self.pokaz_okno_bledu("Brak aparatu", "Nie wykryto żadnego sensora kamery w urządzeniu.")
+                return
+
+            wybrana = next(
+                (c for c in kamery if c.lens_direction == fc.CameraLensDirection.BACK),
+                kamery[0]
+            )
+            await asyncio.wait_for(
+                self.kamera_obiektyw.initialize(wybrana, fc.ResolutionPreset.HIGH, enable_audio=False),
+                timeout=30
+            )
+            self.dopisz_log("Kamera pełnoekranowa zainicjalizowana.", ft.Colors.GREEN)
+
+        except Exception as err:
+            await self.zamknij_pelny_ekran_aparatu()
+            self.dopisz_log(f"Błąd aparatu: {err}", ft.Colors.RED)
+            self.pokaz_okno_bledu("Błąd aparatu", f"Nie udało się uruchomić aparatu: {err}")
 
     # --- ZARZĄDZANIE REGULAMI MAPOWAŃ ---
     def _inicjalizuj_okno_mapowan(self):
