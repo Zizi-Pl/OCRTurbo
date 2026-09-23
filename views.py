@@ -644,27 +644,80 @@ class ViewsManager:
             self.page.update()
 
     # =========================================================================
-    # 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, EDYCJA MONOSPACE)
+    # 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, NOWY STYL KAFELKOWY)
     # =========================================================================
     def _inicjalizuj_modul_dokument(self):
-        self.podglad_dok = ft.Image(src=config.PUSTY_OBRAZ, visible=False, fit="contain", height=180)
+        self.podglad_dok = ft.Image(
+            src=config.PUSTY_OBRAZ,
+            visible=False,
+            fit="contain",
+            height=200,
+            border_radius=8
+        )
 
         self.wiersz_obrotu_dok = ft.Row([
-            ft.Button("Obróć w lewo (90°)", icon=ft.Icons.ROTATE_LEFT, on_click=lambda e: asyncio.create_task(self.obroc_dok(90)), expand=True),
-            ft.Button("Obróć w prawo (90°)", icon=ft.Icons.ROTATE_RIGHT, on_click=lambda e: asyncio.create_task(self.obroc_dok(-90)), expand=True)
-        ], spacing=10)
+            ft.Button(
+                "Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=48, expand=True,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: asyncio.create_task(self.obroc_dok(90))
+            ),
+            ft.Button(
+                "Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=48, expand=True,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: asyncio.create_task(self.obroc_dok(-90))
+            )
+        ], spacing=10, visible=False)
 
-        self.status_dok = ft.Text("Zrób zdjęcie lub wybierz dokument do odczytu układu 1:1.", size=13, color=ft.Colors.BLUE_200, text_align=ft.TextAlign.CENTER)
+        self.status_dok = ft.Text(
+            "Zrób zdjęcie lub wybierz dokument do odczytu układu 1:1.",
+            size=13, color=ft.Colors.BLUE_200, text_align=ft.TextAlign.CENTER
+        )
         self.pasek_dok = ft.ProgressBar(visible=False, color=ft.Colors.BLUE_ACCENT)
 
         self.txt_edytor_dok = ft.TextField(
-            multiline=True, min_lines=12, max_lines=25, text_size=12, dense=True,
-            border_color=ft.Colors.BLUE_GREY_700, visible=False
+            multiline=True,
+            min_lines=12,
+            max_lines=25,
+            text_size=12,
+            dense=True,
+            border_color=ft.Colors.BLUE_GREY_700,
+            bgcolor=ft.Colors.GREY_900,
+            border_radius=8,
+            visible=False
         )
 
-        self.btn_start_dok = ft.Button("Odczytaj tekst dokumentu", disabled=True, bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, on_click=self.analizuj_dokument_dok)
-        self.btn_kopiuj_dok = ft.Button("Kopiuj do schowka", icon=ft.Icons.COPY, visible=False, on_click=self.kopiuj_do_schowka_dok)
-        self.btn_zapisz_dok = ft.Button("Udostępnij jako .TXT", icon=ft.Icons.SHARE, visible=False, on_click=self.udostepnij_tekst_dok)
+        self.btn_start_dok = ft.Button(
+            content=ft.Row([
+                ft.Icon(ft.Icons.PLAY_ARROW, size=24),
+                ft.Text("Odczytaj tekst dokumentu", size=15, weight=ft.FontWeight.BOLD)
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            height=54,
+            disabled=True,
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.BLUE_800,
+                color=ft.Colors.WHITE,
+                shape=ft.RoundedRectangleBorder(radius=10)
+            ),
+            on_click=self.analizuj_dokument_dok
+        )
+
+        self.btn_kopiuj_dok = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.COPY, size=20), ft.Text("Kopiuj tekst", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=50,
+            expand=True,
+            visible=False,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=self.kopiuj_do_schowka_dok
+        )
+
+        self.btn_zapisz_dok = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.SHARE, size=20), ft.Text("Udostępnij .TXT", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=50,
+            expand=True,
+            visible=False,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=self.udostepnij_tekst_dok
+        )
 
         self.widok_dokument = ft.Column([
             ft.Row([
@@ -675,14 +728,30 @@ class ViewsManager:
                 ], spacing=2)
             ]),
             ft.Row([
-                ft.Button("Galeria", icon=ft.Icons.PHOTO_LIBRARY, expand=True, on_click=self.wybierz_foto_dok),
-                ft.Button("Aparat", icon=ft.Icons.CAMERA_ALT, expand=True, on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("dokument")))
-            ]),
-            self.pasek_dok, self.status_dok, self.btn_start_dok, self.podglad_dok,
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("Galeria", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                    height=52,
+                    expand=True,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=self.wybierz_foto_dok
+                ),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.CAMERA_ALT), ft.Text("Aparat", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                    height=52,
+                    expand=True,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("dokument"))
+                )
+            ], spacing=10),
+            self.pasek_dok,
+            self.status_dok,
+            self.btn_start_dok,
+            self.podglad_dok,
             self.wiersz_obrotu_dok,
-            ft.Row([self.btn_kopiuj_dok, self.btn_zapisz_dok]),
-            self.txt_edytor_dok
-        ], spacing=10, visible=False)
+            ft.Row([self.btn_kopiuj_dok, self.btn_zapisz_dok], spacing=10),
+            self.txt_edytor_dok,
+            ft.Container(height=40)
+        ], spacing=12, visible=False)
 
     def ustaw_nowy_obraz_dok(self, sciezka: str):
         nowa = os.path.join(config.KATALOG_DANYCH, f"img_dok_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
@@ -690,6 +759,7 @@ class ViewsManager:
         self.zdjecie_dok["sciezka"] = nowa
         self.podglad_dok.src = nowa
         self.podglad_dok.visible = True
+        self.wiersz_obrotu_dok.visible = True
         self.btn_start_dok.disabled = False
         self.status_dok.value = "Zdjęcie załadowane. Kliknij 'Odczytaj tekst dokumentu'."
         self.page.update()
@@ -706,7 +776,8 @@ class ViewsManager:
         self.page.update()
 
     async def analizuj_dokument_dok(self, e):
-        if not self.zdjecie_dok["sciezka"]: return
+        if not self.zdjecie_dok["sciezka"]:
+            return
         self.btn_start_dok.disabled = True
         self.pasek_dok.visible = True
         self.status_dok.value = "Model AI rekonstruuje tekst z zachowaniem układu..."
@@ -718,23 +789,28 @@ class ViewsManager:
         )
         try:
             cfg = config.wczytaj_konfiguracje()
-            base64_image = await asyncio.get_running_loop().run_in_executor(None, core.kompresuj_do_base64, self.zdjecie_dok["sciezka"], cfg.get("image_resolution", 1800))
+            base64_image = await asyncio.get_running_loop().run_in_executor(
+                None, core.kompresuj_do_base64, self.zdjecie_dok["sciezka"], cfg.get("image_resolution", 1800)
+            )
             if cfg.get("use_cloud", True):
                 url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 headers = {"Authorization": f"Bearer {cfg.get('gemini_api_key', '')}", "Content-Type": "application/json"}
                 payload = {
                     "model": cfg.get("gemini_model", "gemini-2.5-flash"),
                     "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_dok}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-                    "temperature": 0.0, "max_tokens": 8192
+                    "temperature": 0.0,
+                    "max_tokens": 8192
                 }
             else:
                 url = f"http://{cfg.get('local_ip')}:{cfg.get('local_port')}/v1/chat/completions"
                 headers = {"Content-Type": "application/json"}
-                if cfg.get("local_api_key"): headers["Authorization"] = f"Bearer {cfg.get('local_api_key')}"
+                if cfg.get("local_api_key"):
+                    headers["Authorization"] = f"Bearer {cfg.get('local_api_key')}"
                 payload = {
                     "model": cfg.get("local_model", "qwen3.5-9b"),
                     "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_dok}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-                    "temperature": 0.0, "chat_template_kwargs": {"enable_thinking": False}
+                    "temperature": 0.0,
+                    "chat_template_kwargs": {"enable_thinking": False}
                 }
 
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
@@ -773,87 +849,227 @@ class ViewsManager:
             self.ustaw_nowy_obraz_dok(pliki[0].path)
 
     # =========================================================================
-    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (ZASZARZENIE KADRU W LOCIE)
+    # 3. MODUŁ III: SZYBKI SKANER GRAFICZNY (DOTYKOWE KADROWANIE NAROŻNIKAMI)
     # =========================================================================
     def _inicjalizuj_modul_skanera(self):
         self.SZEROKOSC_SKAN = 320
-        self.WYSOKOSC_SKAN = 400
+        self.WYSOKOSC_SKAN = 420
+        self.UCHWYT_ROZMIAR = 36
 
-        self.podglad_skan = ft.Image(src=config.PUSTY_OBRAZ, fit="fill", width=self.SZEROKOSC_SKAN, height=self.WYSOKOSC_SKAN)
+        # Współrzędne ramki w pikselach
+        self.crop_x1 = 0.0
+        self.crop_y1 = 0.0
+        self.crop_x2 = float(self.SZEROKOSC_SKAN)
+        self.crop_y2 = float(self.WYSOKOSC_SKAN)
 
-        self.wiersz_obrotu_skan = ft.Row([
-            ft.Button("Obróć w lewo (90°)", icon=ft.Icons.ROTATE_LEFT, on_click=lambda e: asyncio.create_task(self.obroc_skan(90)), expand=True),
-            ft.Button("Obróć w prawo (90°)", icon=ft.Icons.ROTATE_RIGHT, on_click=lambda e: asyncio.create_task(self.obroc_skan(-90)), expand=True)
-        ], spacing=10)
+        self.podglad_skan = ft.Image(
+            src=config.PUSTY_OBRAZ,
+            fit="fill",
+            width=self.SZEROKOSC_SKAN,
+            height=self.WYSOKOSC_SKAN
+        )
 
-        self.status_skan = ft.Text("Wczytaj skan, aby wykadrować i nałożyć filtry dokumentowe.", size=13, color=ft.Colors.ORANGE_200, text_align=ft.TextAlign.CENTER)
-
+        # Maski zaciemniające odrzucony kadr
         self.maska_gora = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, left=0, width=self.SZEROKOSC_SKAN, height=0)
         self.maska_dol = ft.Container(bgcolor=ft.Colors.BLACK54, bottom=0, left=0, width=self.SZEROKOSC_SKAN, height=0)
         self.maska_lewo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, left=0, width=0)
         self.maska_prawo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, right=0, width=0)
-        self.ramka_ciecia = ft.Container(border=ft.Border.all(1.5, ft.Colors.RED_ACCENT), top=0, bottom=0, left=0, right=0)
-
-        self.ramka_skanera = ft.Container(
-            content=ft.Stack([self.podglad_skan, self.maska_gora, self.maska_dol, self.maska_lewo, self.maska_prawo, self.ramka_ciecia]),
-            width=self.SZEROKOSC_SKAN, height=self.WYSOKOSC_SKAN, alignment=ft.Alignment(0, 0), visible=False
+        self.ramka_ciecia = ft.Container(
+            border=ft.Border.all(2.0, ft.Colors.ORANGE_ACCENT),
+            top=0, left=0, width=self.SZEROKOSC_SKAN, height=self.WYSOKOSC_SKAN
         )
 
-        self.slider_gora = ft.Slider(min=0, max=45, value=0, label="Góra: {value}%", expand=True, on_change=self.aktualizuj_zaszarzenie)
-        self.slider_dol = ft.Slider(min=0, max=45, value=0, label="Dół: {value}%", expand=True, on_change=self.aktualizuj_zaszarzenie)
-        self.slider_lewo = ft.Slider(min=0, max=45, value=0, label="Lewo: {value}%", expand=True, on_change=self.aktualizuj_zaszarzenie)
-        self.slider_prawo = ft.Slider(min=0, max=45, value=0, label="Prawo: {value}%", expand=True, on_change=self.aktualizuj_zaszarzenie)
+        # 4 narożniki do przeciągania palcem
+        def stworz_uchwyt():
+            return ft.Container(
+                width=self.UCHWYT_ROZMIAR,
+                height=self.UCHWYT_ROZMIAR,
+                bgcolor=ft.Colors.ORANGE_ACCENT,
+                border_radius=self.UCHWYT_ROZMIAR / 2,
+                border=ft.Border.all(2, ft.Colors.WHITE)
+            )
+
+        def pobierz_deltas(e):
+            dx = getattr(e, "delta", None)
+            if dx is not None:
+                return e.delta.x, e.delta.y
+            loc = getattr(e, "local_delta", None)
+            if loc is not None:
+                return e.local_delta.x, e.local_delta.y
+            return getattr(e, "delta_x", 0.0), getattr(e, "delta_y", 0.0)
+
+        self.uchwyt_lt = ft.GestureDetector(
+            content=stworz_uchwyt(),
+            on_pan_update=lambda e: self._przesun_uchwyt("lt", *pobierz_deltas(e)),
+            top=0, left=0
+        )
+        self.uchwyt_rt = ft.GestureDetector(
+            content=stworz_uchwyt(),
+            on_pan_update=lambda e: self._przesun_uchwyt("rt", *pobierz_deltas(e)),
+            top=0, left=self.SZEROKOSC_SKAN - self.UCHWYT_ROZMIAR
+        )
+        self.uchwyt_lb = ft.GestureDetector(
+            content=stworz_uchwyt(),
+            on_pan_update=lambda e: self._przesun_uchwyt("lb", *pobierz_deltas(e)),
+            top=self.WYSOKOSC_SKAN - self.UCHWYT_ROZMIAR, left=0
+        )
+        self.uchwyt_rb = ft.GestureDetector(
+            content=stworz_uchwyt(),
+            on_pan_update=lambda e: self._przesun_uchwyt("rb", *pobierz_deltas(e)),
+            top=self.WYSOKOSC_SKAN - self.UCHWYT_ROZMIAR, left=self.SZEROKOSC_SKAN - self.UCHWYT_ROZMIAR
+        )
+
+        self.ramka_skanera = ft.Container(
+            content=ft.Stack([
+                self.podglad_skan,
+                self.maska_gora, self.maska_dol, self.maska_lewo, self.maska_prawo,
+                self.ramka_ciecia,
+                self.uchwyt_lt, self.uchwyt_rt, self.uchwyt_lb, self.uchwyt_rb
+            ]),
+            width=self.SZEROKOSC_SKAN,
+            height=self.WYSOKOSC_SKAN,
+            alignment=ft.Alignment(0, 0),
+            visible=False
+        )
+
+        self.status_skan = ft.Text(
+            "Wczytaj skan, aby wykadrować i nałożyć filtry.",
+            size=13, color=ft.Colors.ORANGE_200, text_align=ft.TextAlign.CENTER
+        )
+
+        self.wiersz_obrotu_skan = ft.Row([
+            ft.Button(
+                "Obróć w lewo", icon=ft.Icons.ROTATE_LEFT, height=48, expand=True,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: asyncio.create_task(self.obroc_skan(90))
+            ),
+            ft.Button(
+                "Obróć w prawo", icon=ft.Icons.ROTATE_RIGHT, height=48, expand=True,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: asyncio.create_task(self.obroc_skan(-90))
+            )
+        ], spacing=10, visible=False)
+
+        # Przyciski filtrów o pełnej szerokości dotykowej
+        self.btn_filtr_bw = ft.Button(
+            "Czarno-Biały (B&W)", height=48, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: asyncio.create_task(self.filtruj_skan("bw"))
+        )
+        self.btn_filtr_szary = ft.Button(
+            "Szary Kontrast", height=48, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: asyncio.create_task(self.filtruj_skan("szary"))
+        )
+        self.btn_filtr_wyostrz = ft.Button(
+            "Wyostrz", height=48,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_900, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: asyncio.create_task(self.filtruj_skan("wyostrz"))
+        )
 
         self.kontener_akcji_skanu = ft.Column([
-            ft.Text("Marginesy cięcia (zaszarzanie obszaru):", size=12, weight=ft.FontWeight.BOLD),
-            ft.Row([ft.Text("L:", size=11), self.slider_lewo, ft.Text("P:", size=11), self.slider_prawo]),
-            ft.Row([ft.Text("G:", size=11), self.slider_gora, ft.Text("D:", size=11), self.slider_dol]),
-            ft.Button("Wytnij zaznaczony kadr", icon=ft.Icons.CROP, style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_800, color=ft.Colors.WHITE), on_click=self.przytnij_zaznaczenie),
-            ft.Divider(),
+            ft.Button(
+                content=ft.Row([ft.Icon(ft.Icons.CROP, size=22), ft.Text("Wytnij zaznaczony kadr", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                height=54,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
+                on_click=self.przytnij_zaznaczenie
+            ),
+            ft.Divider(height=16),
             ft.Text("Filtry kontrastowe (czarno-białe / wyostrzanie):", size=12, weight=ft.FontWeight.BOLD),
-            ft.Row([
-                ft.Button("Czarno-Biały (B&W)", style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800), on_click=lambda e: asyncio.create_task(self.filtruj_skan("bw"))),
-                ft.Button("Szary Kontrast", style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800), on_click=lambda e: asyncio.create_task(self.filtruj_skan("szary"))),
-                ft.Button("Wyostrz", style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_900), on_click=lambda e: asyncio.create_task(self.filtruj_skan("wyostrz")))
-            ], wrap=True),
-            ft.Divider(),
-            ft.Button("Udostępnij gotowy skan", icon=ft.Icons.SHARE, bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE,
-                      on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"])))
-        ], visible=False, spacing=8)
+            ft.Row([self.btn_filtr_bw, self.btn_filtr_szary], spacing=8),
+            ft.Row([self.btn_filtr_wyostrz]),
+            ft.Divider(height=16),
+            ft.Button(
+                content=ft.Row([ft.Icon(ft.Icons.SHARE, size=24), ft.Text("Udostępnij gotowy skan", size=16, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                height=56,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
+                on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
+            ),
+            ft.Container(height=40)  # Margines bezpieczeństwa przed paskiem Androida
+        ], visible=False, spacing=10)
 
         self.widok_skanera = ft.Column([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: self.przelacz_widok("menu")),
                 ft.Column([
                     ft.Text("Szybki Skaner Graficzny", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_400),
-                    ft.Text("Działa offline (kadrowanie i filtry Pillow)", size=12, color=ft.Colors.GREY_400)
+                    ft.Text("Dotknij i przeciągnij pomarańczowe punkty", size=12, color=ft.Colors.GREY_400)
                 ], spacing=2)
             ]),
             ft.Row([
-                ft.Button("Galeria", icon=ft.Icons.PHOTO_LIBRARY, expand=True, on_click=self.wybierz_foto_skan),
-                ft.Button("Aparat", icon=ft.Icons.CAMERA_ALT, expand=True, on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("skaner")))
-            ]),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("Galeria", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                    height=52, expand=True,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=self.wybierz_foto_skan
+                ),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.CAMERA_ALT), ft.Text("Aparat", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                    height=52, expand=True,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("skaner"))
+                )
+            ], spacing=10),
             self.status_skan,
             self.ramka_skanera,
             self.wiersz_obrotu_skan,
             self.kontener_akcji_skanu
         ], spacing=10, visible=False)
 
-    def aktualizuj_zaszarzenie(self, e=None):
-        gora_px = int(self.WYSOKOSC_SKAN * (self.slider_gora.value / 100.0))
-        dol_px = int(self.WYSOKOSC_SKAN * (self.slider_dol.value / 100.0))
-        lewo_px = int(self.SZEROKOSC_SKAN * (self.slider_lewo.value / 100.0))
-        prawo_px = int(self.SZEROKOSC_SKAN * (self.slider_prawo.value / 100.0))
+    def _przesun_uchwyt(self, ktory: str, dx: float, dy: float):
+        min_rozmiar = 40.0
+        if ktory == "lt":
+            self.crop_x1 = max(0.0, min(self.crop_x1 + dx, self.crop_x2 - min_rozmiar))
+            self.crop_y1 = max(0.0, min(self.crop_y1 + dy, self.crop_y2 - min_rozmiar))
+        elif ktory == "rt":
+            self.crop_x2 = min(float(self.SZEROKOSC_SKAN), max(self.crop_x2 + dx, self.crop_x1 + min_rozmiar))
+            self.crop_y1 = max(0.0, min(self.crop_y1 + dy, self.crop_y2 - min_rozmiar))
+        elif ktory == "lb":
+            self.crop_x1 = max(0.0, min(self.crop_x1 + dx, self.crop_x2 - min_rozmiar))
+            self.crop_y2 = min(float(self.WYSOKOSC_SKAN), max(self.crop_y2 + dy, self.crop_y1 + min_rozmiar))
+        elif ktory == "rb":
+            self.crop_x2 = min(float(self.SZEROKOSC_SKAN), max(self.crop_x2 + dx, self.crop_x1 + min_rozmiar))
+            self.crop_y2 = min(float(self.WYSOKOSC_SKAN), max(self.crop_y2 + dy, self.crop_y1 + min_rozmiar))
 
-        self.maska_gora.height = gora_px
-        self.maska_dol.height = dol_px
-        self.maska_lewo.width = lewo_px
-        self.maska_prawo.width = prawo_px
+        self._odswiez_pozycje_ramki()
 
-        self.ramka_ciecia.top = gora_px
-        self.ramka_ciecia.bottom = dol_px
-        self.ramka_ciecia.left = lewo_px
-        self.ramka_ciecia.right = prawo_px
+    def _odswiez_pozycje_ramki(self):
+        w = max(1.0, self.crop_x2 - self.crop_x1)
+        h = max(1.0, self.crop_y2 - self.crop_y1)
+
+        self.ramka_ciecia.left = self.crop_x1
+        self.ramka_ciecia.top = self.crop_y1
+        self.ramka_ciecia.width = w
+        self.ramka_ciecia.height = h
+
+        # Maski przyciemniające
+        self.maska_gora.height = self.crop_y1
+        self.maska_dol.top = self.crop_y2
+        self.maska_dol.height = max(0.0, self.WYSOKOSC_SKAN - self.crop_y2)
+
+        self.maska_lewo.top = self.crop_y1
+        self.maska_lewo.height = h
+        self.maska_lewo.width = self.crop_x1
+
+        self.maska_prawo.top = self.crop_y1
+        self.maska_prawo.height = h
+        self.maska_prawo.left = self.crop_x2
+        self.maska_prawo.width = max(0.0, self.SZEROKOSC_SKAN - self.crop_x2)
+
+        # Pozycje 4 uchwytów narożnych
+        pol = self.UCHWYT_ROZMIAR / 2
+        self.uchwyt_lt.left = max(0.0, self.crop_x1 - pol)
+        self.uchwyt_lt.top = max(0.0, self.crop_y1 - pol)
+
+        self.uchwyt_rt.left = min(self.SZEROKOSC_SKAN - self.UCHWYT_ROZMIAR, self.crop_x2 - pol)
+        self.uchwyt_rt.top = max(0.0, self.crop_y1 - pol)
+
+        self.uchwyt_lb.left = max(0.0, self.crop_x1 - pol)
+        self.uchwyt_lb.top = min(self.WYSOKOSC_SKAN - self.UCHWYT_ROZMIAR, self.crop_y2 - pol)
+
+        self.uchwyt_rb.left = min(self.SZEROKOSC_SKAN - self.UCHWYT_ROZMIAR, self.crop_x2 - pol)
+        self.uchwyt_rb.top = min(self.WYSOKOSC_SKAN - self.UCHWYT_ROZMIAR, self.crop_y2 - pol)
+
         self.page.update()
 
     def ustaw_nowy_obraz_skan(self, sciezka: str):
@@ -864,9 +1080,15 @@ class ViewsManager:
         self.podglad_skan.src = nowa
         self.ramka_skanera.visible = True
         self.kontener_akcji_skanu.visible = True
-        self.slider_gora.value = 0; self.slider_dol.value = 0; self.slider_lewo.value = 0; self.slider_prawo.value = 0
-        self.aktualizuj_zaszarzenie()
-        self.status_skan.value = "Czerwona ramka pokazuje obszar, który zostanie zachowany."
+        self.wiersz_obrotu_skan.visible = True
+
+        self.crop_x1 = 0.0
+        self.crop_y1 = 0.0
+        self.crop_x2 = float(self.SZEROKOSC_SKAN)
+        self.crop_y2 = float(self.WYSOKOSC_SKAN)
+        self._odswiez_pozycje_ramki()
+
+        self.status_skan.value = "Przeciągaj pomarańczowe punkty, by zaznaczyć kadr."
         self.page.update()
 
     async def obroc_skan(self, kat: int):
@@ -878,28 +1100,45 @@ class ViewsManager:
         self.zdjecie_skan["sciezka"] = nowa_sciezka
         self.zdjecie_skan["oryginal"] = nowa_sciezka
         self.podglad_skan.src = nowa_sciezka
-        self.slider_gora.value = 0; self.slider_dol.value = 0; self.slider_lewo.value = 0; self.slider_prawo.value = 0
-        self.aktualizuj_zaszarzenie()
+
+        self.crop_x1 = 0.0
+        self.crop_y1 = 0.0
+        self.crop_x2 = float(self.SZEROKOSC_SKAN)
+        self.crop_y2 = float(self.WYSOKOSC_SKAN)
+        self._odswiez_pozycje_ramki()
+
         self.status_skan.value = f"Obrócono skan o {kat}°."
         self.page.update()
 
-    async def przytnij_zaznaczenie(e_self, e):
-        if not e_self.zdjecie_skan["oryginal"]: return
+    async def przytnij_zaznaczenie(self, e):
+        if not self.zdjecie_skan["oryginal"]:
+            return
+
+        proc_lewo = (self.crop_x1 / self.SZEROKOSC_SKAN) * 100.0
+        proc_gora = (self.crop_y1 / self.WYSOKOSC_SKAN) * 100.0
+        proc_prawo = ((self.SZEROKOSC_SKAN - self.crop_x2) / self.SZEROKOSC_SKAN) * 100.0
+        proc_dol = ((self.WYSOKOSC_SKAN - self.crop_y2) / self.WYSOKOSC_SKAN) * 100.0
+
         nowa_sciezka = await asyncio.get_running_loop().run_in_executor(
-            None, core.kadruj_plik_graficzny, e_self.zdjecie_skan["oryginal"],
-            e_self.slider_lewo.value, e_self.slider_gora.value,
-            e_self.slider_prawo.value, e_self.slider_dol.value
+            None, core.kadruj_plik_graficzny, self.zdjecie_skan["oryginal"],
+            proc_lewo, proc_gora, proc_prawo, proc_dol
         )
-        e_self.zdjecie_skan["sciezka"] = nowa_sciezka
-        e_self.zdjecie_skan["oryginal"] = nowa_sciezka
-        e_self.podglad_skan.src = nowa_sciezka
-        e_self.slider_gora.value = 0; e_self.slider_dol.value = 0; e_self.slider_lewo.value = 0; e_self.slider_prawo.value = 0
-        e_self.aktualizuj_zaszarzenie()
-        e_self.status_skan.value = "✅ Przycięto kadr! Wybierz filtr poprawy jakości."
-        e_self.page.update()
+        self.zdjecie_skan["sciezka"] = nowa_sciezka
+        self.zdjecie_skan["oryginal"] = nowa_sciezka
+        self.podglad_skan.src = nowa_sciezka
+
+        self.crop_x1 = 0.0
+        self.crop_y1 = 0.0
+        self.crop_x2 = float(self.SZEROKOSC_SKAN)
+        self.crop_y2 = float(self.WYSOKOSC_SKAN)
+        self._odswiez_pozycje_ramki()
+
+        self.status_skan.value = "✅ Przycięto kadr! Możesz nałożyć filtr lub udostępnić."
+        self.page.update()
 
     async def filtruj_skan(self, typ: str):
-        if not self.zdjecie_skan["sciezka"]: return
+        if not self.zdjecie_skan["sciezka"]:
+            return
         nowa_sciezka = await asyncio.get_running_loop().run_in_executor(
             None, core.filtruj_plik_graficzny, self.zdjecie_skan["sciezka"], typ
         )
