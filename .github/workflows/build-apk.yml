@@ -22,16 +22,18 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Instalacja bibliotek i narzędzia Flet
+      - name: Instalacja bibliotek i narzedzia Flet
         run: |
           python -m pip install --upgrade pip
           pip install flet-cli==0.85.3
           pip install -r requirements.txt
 
-      - name: Przygotowanie ikony aplikacji
+      - name: Przygotowanie ikony aplikacji (jesli istnieje)
         run: |
           mkdir -p assets
-          cp .github/assets/app_icon.png assets/icon.png
+          if [ -f .github/assets/app_icon.png ]; then
+            cp .github/assets/app_icon.png assets/icon.png
+          fi
 
       - name: Budowanie APK dla Androida
         env:
