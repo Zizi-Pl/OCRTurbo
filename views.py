@@ -852,7 +852,7 @@ class ViewsManager:
     # =========================================================================
     def _inicjalizuj_modul_skanera(self):
         self.SZEROKOSC_SKAN = 320
-        self.WYSOKOSC_SKAN = 280
+        self.WYSOKOSC_SKAN = 400
         self.UCHWYT_ROZMIAR = 48  # Większy obszar dotykowy dla wygody palca
 
         # Współrzędne ramki w pikselach
@@ -1001,16 +1001,47 @@ class ViewsManager:
             ft.Container(height=40)
         ], visible=False, spacing=10, tight=True)  # <--- dodany tight=True
 
-        # Przewijalny dolny panel narzędziowy dla skanera
-        # Przewijalny dolny panel narzędziowy dla skanera
-        self.dolny_panel_skanera = ft.ListView(
+        # Przewijalny dolny panel narzędziowy dla skanera z uchwytem dotykowym
+        self.kontener_akcji_skanu = ft.Column([
+            ft.Button(
+                content=ft.Row([ft.Icon(ft.Icons.CROP, size=22), ft.Text("Wytnij zaznaczony kadr", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                height=52,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
+                on_click=self.przytnij_zaznaczenie
+            ),
+            ft.Divider(height=12),
+            ft.Text("Filtry kontrastowe (kliknij ponownie ten sam, by go cofnąć):", size=12, weight=ft.FontWeight.BOLD),
+            ft.Row([self.btn_filtr_bw, self.btn_filtr_szary], spacing=8),
+            ft.Row([self.btn_filtr_wyostrz]),
+            ft.Row([self.btn_cofnij_filtr]),
+            ft.Divider(height=12),
+            ft.Button(
+                content=ft.Row([ft.Icon(ft.Icons.SHARE, size=22), ft.Text("Udostępnij gotowy skan", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+                height=52,
+                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
+                on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
+            ),
+            ft.Container(height=80)  # Bezpieczny odstęp od dolnego paska nawigacji Androida
+        ], visible=False, spacing=10)
+
+        # Wygodny uchwyt ułatwiający przewijanie palcem zamiast dotykania przycisków
+        uchwyt_przewijania = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.Icons.SWIPE_VERTICAL, size=16, color=ft.Colors.GREY_500),
+                ft.Text("Przewiń narzędzia w górę / w dół", size=11, color=ft.Colors.GREY_500)
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            padding=ft.Padding(0, 4, 0, 4)
+        )
+
+        self.dolny_panel_skanera = ft.Column(
             controls=[
+                uchwyt_przewijania,
                 self.wiersz_obrotu_skan,
                 self.kontener_akcji_skanu
             ],
             spacing=8,
             expand=True,
-            padding=ft.Padding(0, 4, 0, 30)
+            scroll=ft.ScrollMode.AUTO
         )
 
         self.widok_skanera = ft.Column([
@@ -1036,8 +1067,8 @@ class ViewsManager:
                 )
             ], spacing=8),
             self.status_skan,
-            self.ramka_skanera,         # Teraz ma tylko 280px wysokości
-            self.dolny_panel_skanera    # Ma mnóstwo miejsca i od razu pokazuje przyciski
+            self.ramka_skanera,
+            self.dolny_panel_skanera
         ], spacing=6, expand=True, visible=False)
 
     def _pobierz_deltas(self, e):
