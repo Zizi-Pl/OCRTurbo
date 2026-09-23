@@ -3,3 +3,5 @@ flet-camera
 httpx
 Pillow
 thefuzz
+python-docx
+openpyxl
