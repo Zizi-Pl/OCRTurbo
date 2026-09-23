@@ -51,7 +51,7 @@ jobs:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          yes | flet build apk --project "ocrLmm" --description "Skaner PZ do EDI" -v
+          yes | flet build apk --project "OCRTurbo" --description "Skaner PZ do EDI i inne" -v
 
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
