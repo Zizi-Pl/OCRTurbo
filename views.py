@@ -962,23 +962,23 @@ class ViewsManager:
             on_click=self.przytnij_zaznaczenie
         )
 
-        # 3. Przyciski narzędzi pod wycinaniem
+        # 3. Przyciski narzędzi pod wycinaniem (Filtry i Udostępnij na głównym ekranie)
         self.btn_otworz_filtry = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.TUNE, size=18), ft.Text("Filtry i eksport", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            content=ft.Row([ft.Icon(ft.Icons.TUNE, size=18), ft.Text("Filtry i reset", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
             height=44,
             expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
             on_click=lambda e: self.otworz_okno_filtrow()
         )
-        self.btn_reset_kolor = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.RESTART_ALT, size=18), ft.Text("Reset do koloru", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+        self.btn_udostepnij_glowny = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.SHARE, size=18), ft.Text("Udostępnij", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
             height=44,
             expand=True,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=self.resetuj_do_koloru_skan
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
         )
 
-        self.wiersz_dodatkowych_akcji = ft.Row([self.btn_otworz_filtry, self.btn_reset_kolor], spacing=8)
+        self.wiersz_dodatkowych_akcji = ft.Row([self.btn_otworz_filtry, self.btn_udostepnij_glowny], spacing=8)
 
         self.kontener_dolny_skan = ft.Column([
             self.wiersz_obrotu_skan,
@@ -1008,11 +1008,17 @@ class ViewsManager:
             disabled=True,
             on_click=self.cofnij_ostatni_krok_skan
         )
+        self.btn_reset_kolor = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.RESTART_ALT, size=20), ft.Text("Reset do koloru", size=14, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
+            height=48,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
+            on_click=self.resetuj_do_koloru_skan
+        )
 
-        # Dialog filtrów i eksportu
+        # Dialog filtrów i resetu
         self.dlg_filtry = ft.AlertDialog(
             modal=False,
-            title=ft.Text("Obróbka i udostępnianie", size=16, weight=ft.FontWeight.BOLD),
+            title=ft.Text("Obróbka i filtry", size=16, weight=ft.FontWeight.BOLD),
             content=ft.Container(
                 content=ft.Column([
                     ft.Text("Filtry kontrastowe (offline):", size=12, color=ft.Colors.GREY_300),
@@ -1020,12 +1026,7 @@ class ViewsManager:
                     ft.Row([self.btn_filtr_wyostrz]),
                     ft.Row([self.btn_cofnij_filtr]),
                     ft.Divider(height=14),
-                    ft.Button(
-                        content=ft.Row([ft.Icon(ft.Icons.SHARE, size=22), ft.Text("Udostępnij gotowy skan", size=15, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER),
-                        height=50,
-                        style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10)),
-                        on_click=lambda e: asyncio.create_task(self.udostepnij_plik(self.zdjecie_skan["sciezka"]))
-                    ),
+                    self.btn_reset_kolor
                 ], spacing=10, tight=True),
                 width=320,
             ),
@@ -1056,7 +1057,7 @@ class ViewsManager:
                     style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
                     on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("skaner"))
                 )
-            ], spacing=8),
+            ]),
             self.status_skan,
             self.ramka_skanera,
             self.kontener_dolny_skan
