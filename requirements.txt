@@ -1,4 +1,5 @@
 flet==0.85.3
+flet-camera
 httpx
 Pillow
 thefuzz

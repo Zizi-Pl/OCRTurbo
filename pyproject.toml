@@ -5,10 +5,10 @@ description = "Skaner PZ do EDI"
 requires-python = ">=3.11"
 dependencies = [
     "flet==0.85.3",
+    "flet-camera",
     "httpx",
     "Pillow",
-    "thefuzz",
-    
+    "thefuzz"
 ]
 
 [tool.flet]
