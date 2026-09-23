@@ -71,5 +71,28 @@ Aplikacja wspiera hybrydowe przetwarzanie obrazu:
 ### Budowanie wersji Android (APK)
 Do zachowania możliwości aktualizacji zainstalowanej aplikacji bez konieczności odinstalowywania wymagane jest stałe użycie tego samego pliku keystore oraz podbijanie numeru kompilacji:
 
+## 📦 Wymagania środowiskowe i użyte biblioteki
+
+Do uruchomienia i kompilacji projektu wymagane jest środowisko **Python >= 3.11**.
+
+### 📚 Kluczowe zależności i ich zastosowanie w aplikacji
+
+| Biblioteka | Wersja | Rola w projekcie |
+| :--- | :--- | :--- |
+| **`flet`** | `0.85.3` | Główny silnik interfejsu graficznego (UI) oparty na silniku Flutter. |
+| **`flet-camera`** | najnowsza | Natywna obsługa modułu aparatu fotograficznego na urządzeniach mobilnych (Android). |
+| **`httpx`** | najnowsza | Asynchroniczny klient HTTP do zapytań API (Google Gemini oraz lokalne LM Studio). |
+| **`pillow`** (PIL) | najnowsza | Kompresja, obracanie, nakładanie filtrów kontrastowych i precyzyjne kadrowanie pikseli. |
+| **`python-docx`** | najnowsza | Eksport rozpoznanego tekstu i układów tabelarycznych do formatu Microsoft Word (`.docx`). |
+| **`openpyxl`** | najnowsza | Generowanie i formatowanie arkuszy kalkulacyjnych Microsoft Excel (`.xlsx`) z danymi liczbowymi. |
+| **`thefuzz`** | najnowsza | Algorytmy wyszukiwania rozmytego (fuzzy matching) do automatycznego łączenia nazw towarów z bazą PC-Market. |
+
+---
+
+### ⚙️ Instalacja środowiska deweloperskiego
+
+1. Sklonuj repozytorium na dysk lokalny:
 ```bash
-flet build apk --build-number <NUMER_KOMPILACJI>
+git clone [https://github.com/twoj-login/ocrlmm.git](https://github.com/twoj-login/ocrlmm.git)
+cd OCRTurbo
+
