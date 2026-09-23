@@ -772,31 +772,37 @@ class UIManager:
 
         self.dlg_edycja_pozycji = ft.AlertDialog(
             modal=True,
+            inset_padding=ft.Padding(10, 20, 10, 20),
             title=ft.Text("✏️ Edycja pozycji PZ"),
-            content=ft.Column(
-                [
-                    self.lbl_edycja_nazwa,
-                    ft.Divider(height=1, color=ft.Colors.GREY_800),
-                    wiersz_kodu,
-                    wiersz_jm,
-                    ft.Row([self.txt_edycja_ilosc, self.txt_edycja_cena]),
-                    self.txt_edycja_wartosc,
-                    ft.Row([
-                        ft.Button(
-                            content=ft.Row([ft.Icon(ft.Icons.LINK_OFF, size=16), ft.Text("Wyczyść kod (F5)", size=12)]),
-                            style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_900, color=ft.Colors.WHITE, padding=8),
-                            on_click=wyczysc_kod_pozycji
-                        ),
-                        ft.Button(
-                            content=ft.Row([ft.Icon(ft.Icons.DELETE_OUTLINE, size=16), ft.Text("Usuń z PZ", size=12)]),
-                            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, padding=8),
-                            on_click=usun_pozycje_z_pz
-                        )
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-                ],
-                tight=True,
-                spacing=10,
-                width=340
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        self.lbl_edycja_nazwa,
+                        ft.Divider(height=1, color=ft.Colors.GREY_800),
+                        wiersz_kodu,
+                        wiersz_jm,
+                        ft.Row([self.txt_edycja_ilosc, self.txt_edycja_cena], spacing=10),
+                        self.txt_edycja_wartosc,
+                        ft.Row([
+                            ft.Button(
+                                content=ft.Row([ft.Icon(ft.Icons.LINK_OFF, size=16), ft.Text("Wyczyść kod (F5)", size=12)]),
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_900, color=ft.Colors.WHITE, padding=8),
+                                on_click=wyczysc_kod_pozycji,
+                                expand=True
+                            ),
+                            ft.Button(
+                                content=ft.Row([ft.Icon(ft.Icons.DELETE_OUTLINE, size=16), ft.Text("Usuń z PZ", size=12)]),
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, padding=8),
+                                on_click=usun_pozycje_z_pz,
+                                expand=True
+                            )
+                        ], spacing=10)
+                    ],
+                    tight=True,
+                    spacing=10,
+                    scroll=ft.ScrollMode.AUTO
+                ),
+                width=1000
             ),
             actions=[
                 ft.Button("Anuluj", on_click=lambda e: self.bezpiecznie_otworz_dialog(self.dlg_weryfikacja)),
