@@ -94,5 +94,4 @@ Do uruchomienia i kompilacji projektu wymagane jest środowisko **Python >= 3.11
 1. Sklonuj repozytorium na dysk lokalny:
 ```bash
 git clone [https://github.com/twoj-login/ocrlmm.git](https://github.com/twoj-login/ocrlmm.git)
-cd OCRTurbo
-
+cd ocrlmm
