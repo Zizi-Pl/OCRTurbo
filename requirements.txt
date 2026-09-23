@@ -1,5 +1,6 @@
 flet==0.85.3
+flet-camera
 httpx
 Pillow
 thefuzz
-flet-camera==0.85.3
+python-Levenshtein
