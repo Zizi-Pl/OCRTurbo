@@ -3,7 +3,7 @@ import shutil
 import asyncio
 from datetime import datetime
 import flet as ft
-from PIL import Image
+from PIL import Image, ImageOps
 
 import config
 import core
@@ -11,10 +11,10 @@ import core
 
 class ModulScanMixin:
     def _inicjalizuj_modul_skanera(self):
-        # Bezpieczne maksymalne wymiary kadru dopasowane do ekranu telefonu
-        self.MAX_SZEROKOSC_KADRU = 340.0
-        self.MAX_WYSOKOSC_KADRU = 500.0
-        self.UCHWYT_ROZMIAR_DOK_SKAN = 44
+        # Bezpieczne granice kadrowania dopasowane do ekranu telefonu (spójne z PZ i Dokument)
+        self.MAX_SZEROKOSC_KADRU = 330.0
+        self.MAX_WYSOKOSC_KADRU = 460.0
+        self.UCHWYT_ROZMIAR_DOK_SKAN = 40
 
         self.SZEROKOSC_DOK_SKAN = int(self.MAX_SZEROKOSC_KADRU)
         self.WYSOKOSC_DOK_SKAN = int(self.MAX_WYSOKOSC_KADRU)
@@ -37,10 +37,10 @@ class ModulScanMixin:
             height=240
         )
 
-        # 2. Obraz na pełnym ekranie roboczym
+        # 2. Obraz na pełnym ekranie roboczym z zachowaniem proporcji
         self.img_pelny_podglad_skan = ft.Image(
             src=config.PUSTY_OBRAZ,
-            fit="fill",
+            fit="contain",
             width=self.SZEROKOSC_DOK_SKAN,
             height=self.WYSOKOSC_DOK_SKAN
         )
@@ -73,10 +73,10 @@ class ModulScanMixin:
                 height=self.UCHWYT_ROZMIAR_DOK_SKAN
             )
 
-        self.uchwyt_skan_lt = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("lt", *self._pobierz_deltas_skan(e)), top=0, left=0)
-        self.uchwyt_skan_rt = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("rt", *self._pobierz_deltas_skan(e)), top=0, left=self.SZEROKOSC_DOK_SKAN - self.UCHWYT_ROZMIAR_DOK_SKAN)
-        self.uchwyt_skan_lb = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("lb", *self._pobierz_deltas_skan(e)), top=self.WYSOKOSC_DOK_SKAN - self.UCHWYT_ROZMIAR_DOK_SKAN, left=0)
-        self.uchwyt_skan_rb = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("rb", *self._pobierz_deltas_skan(e)), top=self.WYSOKOSC_DOK_SKAN - self.UCHWYT_ROZMIAR_DOK_SKAN, left=self.SZEROKOSC_DOK_SKAN - self.UCHWYT_ROZMIAR_DOK_SKAN)
+        self.uchwyt_skan_lt = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("lt", *self._pobierz_deltas_skan(e)))
+        self.uchwyt_skan_rt = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("rt", *self._pobierz_deltas_skan(e)))
+        self.uchwyt_skan_lb = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("lb", *self._pobierz_deltas_skan(e)))
+        self.uchwyt_skan_rb = ft.GestureDetector(content=stworz_uchwyt_skan(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_skan("rb", *self._pobierz_deltas_skan(e)))
 
         self.ramka_kadrowania_skan = ft.Container(
             content=ft.Stack([
@@ -92,33 +92,33 @@ class ModulScanMixin:
 
         # Górna belka: obroty i filtry
         self.btn_obrot_l_skan = ft.IconButton(
-            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=30,
-            width=54, height=52,
+            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=28,
+            width=50, height=50,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w lewo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_skan(90))
         )
         self.btn_f_bw_skan = ft.Button(
-            content=ft.Text("B&W", size=13, weight=ft.FontWeight.BOLD),
-            height=52, expand=True,
+            content=ft.Text("B&W", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_skan("bw"))
         )
         self.btn_f_szary_skan = ft.Button(
-            content=ft.Text("GRY", size=13, weight=ft.FontWeight.BOLD),
-            height=52, expand=True,
+            content=ft.Text("GRY", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_skan("szary"))
         )
         self.btn_f_wyostrz_skan = ft.Button(
-            content=ft.Text("SHP", size=13, weight=ft.FontWeight.BOLD),
-            height=52, expand=True,
+            content=ft.Text("SHP", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_skan("wyostrz"))
         )
         self.btn_obrot_r_skan = ft.IconButton(
-            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=30,
-            width=54, height=52,
+            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=28,
+            width=50, height=50,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w prawo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_skan(-90))
@@ -132,30 +132,30 @@ class ModulScanMixin:
             self.btn_obrot_r_skan
         ], spacing=4)
 
-        # Przyciski dolne
+        # Przyciski dolne (wysokość 52, zaokrąglenie 10)
         self.btn_pelny_anuluj_skan = ft.Button(
-            content=ft.Text("Anuluj", size=12),
-            height=46, expand=True,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
+            content=ft.Text("Anuluj", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._zamknij_pelny_ekran_skan())
         )
         self.btn_pelny_cofnij_skan = ft.Button(
-            content=ft.Text("Cofnij", size=12),
-            height=46, expand=True,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
+            content=ft.Text("Cofnij", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             disabled=True,
             on_click=lambda e: self._cofnij_krok_pelny_skan()
         )
         self.btn_pelny_zatwierdz_skan = ft.Button(
-            content=ft.Text("Zatwierdź kadr", size=12),
-            height=46, expand=True,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
+            content=ft.Text("Zatwierdź", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._zatwierdz_krok_pelny_skan())
         )
         self.btn_pelny_udostepnij_skan = ft.Button(
-            content=ft.Text("Udostępnij", size=12, weight=ft.FontWeight.BOLD),
-            height=46, expand=True,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
+            content=ft.Text("Udostępnij", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._zakoncz_i_udostepnij_skan())
         )
         self.wiersz_akcji_pelnych_skan = ft.Row([
@@ -172,10 +172,11 @@ class ModulScanMixin:
                 ft.Container(
                     content=self.ramka_kadrowania_skan,
                     alignment=ft.Alignment(0, 0),
-                    expand=True
+                    expand=True,
+                    padding=ft.Padding(top=6, bottom=6, left=0, right=0)
                 ),
                 self.wiersz_akcji_pelnych_skan
-            ], spacing=8, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            ], spacing=6, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=6,
             expand=True,
             visible=False
@@ -250,6 +251,16 @@ class ModulScanMixin:
         ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=0, visible=False)
 
     # --- OBSŁUGA GESTÓW I RAMKI ---
+    def _napraw_orientacje_exif(self, sciezka: str) -> str:
+        try:
+            with Image.open(sciezka) as img:
+                img_poprawiony = ImageOps.exif_transpose(img)
+                if img_poprawiony:
+                    img_poprawiony.save(sciezka, quality=95)
+        except Exception:
+            pass
+        return sciezka
+
     def _pobierz_deltas_skan(self, e):
         dx = getattr(e, "delta", None)
         if dx is not None:
@@ -262,13 +273,15 @@ class ModulScanMixin:
     def _aktualizuj_kadrowanie_skan(self):
         w = float(self.SZEROKOSC_DOK_SKAN)
         h = float(self.WYSOKOSC_DOK_SKAN)
+        min_rozmiar = 40.0
 
-        self.crop_skan_x1 = max(0.0, min(self.crop_skan_x1, w - self.UCHWYT_ROZMIAR_DOK_SKAN))
-        self.crop_skan_y1 = max(0.0, min(self.crop_skan_y1, h - self.UCHWYT_ROZMIAR_DOK_SKAN))
-        self.crop_skan_x2 = max(self.crop_skan_x1 + self.UCHWYT_ROZMIAR_DOK_SKAN, min(self.crop_skan_x2, w))
-        self.crop_skan_y2 = max(self.crop_skan_y1 + self.UCHWYT_ROZMIAR_DOK_SKAN, min(self.crop_skan_y2, h))
+        self.crop_skan_x1 = max(0.0, min(self.crop_skan_x1, w - min_rozmiar))
+        self.crop_skan_y1 = max(0.0, min(self.crop_skan_y1, h - min_rozmiar))
+        self.crop_skan_x2 = max(self.crop_skan_x1 + min_rozmiar, min(self.crop_skan_x2, w))
+        self.crop_skan_y2 = max(self.crop_skan_y1 + min_rozmiar, min(self.crop_skan_y2, h))
 
         x1, y1, x2, y2 = self.crop_skan_x1, self.crop_skan_y1, self.crop_skan_x2, self.crop_skan_y2
+        pol_uchwytu = self.UCHWYT_ROZMIAR_DOK_SKAN / 2.0
 
         self.maska_skan_gora.width = w
         self.maska_skan_gora.height = y1
@@ -289,14 +302,17 @@ class ModulScanMixin:
         self.strefa_srodka_skan.width = max(0.0, x2 - x1)
         self.strefa_srodka_skan.height = max(0.0, y2 - y1)
 
-        self.uchwyt_skan_lt.top = y1
-        self.uchwyt_skan_lt.left = x1
-        self.uchwyt_skan_rt.top = y1
-        self.uchwyt_skan_rt.left = x2 - self.UCHWYT_ROZMIAR_DOK_SKAN
-        self.uchwyt_skan_lb.top = y2 - self.UCHWYT_ROZMIAR_DOK_SKAN
-        self.uchwyt_skan_lb.left = x1
-        self.uchwyt_skan_rb.top = y2 - self.UCHWYT_ROZMIAR_DOK_SKAN
-        self.uchwyt_skan_rb.left = x2 - self.UCHWYT_ROZMIAR_DOK_SKAN
+        self.uchwyt_skan_lt.left = max(0.0, x1 - pol_uchwytu)
+        self.uchwyt_skan_lt.top = max(0.0, y1 - pol_uchwytu)
+
+        self.uchwyt_skan_rt.left = min(w - self.UCHWYT_ROZMIAR_DOK_SKAN, x2 - pol_uchwytu)
+        self.uchwyt_skan_rt.top = max(0.0, y1 - pol_uchwytu)
+
+        self.uchwyt_skan_lb.left = max(0.0, x1 - pol_uchwytu)
+        self.uchwyt_skan_lb.top = min(h - self.UCHWYT_ROZMIAR_DOK_SKAN, y2 - pol_uchwytu)
+
+        self.uchwyt_skan_rb.left = min(w - self.UCHWYT_ROZMIAR_DOK_SKAN, x2 - pol_uchwytu)
+        self.uchwyt_skan_rb.top = min(h - self.UCHWYT_ROZMIAR_DOK_SKAN, y2 - pol_uchwytu)
 
         self.page.update()
 
@@ -348,13 +364,11 @@ class ModulScanMixin:
         except Exception:
             w_orig, h_orig = 1000, 1400
 
-        # Zawsze trzymamy się maksymalnej szerokości ekranu pionowego
         max_w = self.MAX_SZEROKOSC_KADRU
         max_h = self.MAX_WYSOKOSC_KADRU
 
         proporcja = w_orig / max(1, h_orig)
 
-        # Dopasowanie do ramki (fit: contain)
         if (max_w / max_h) > proporcja:
             h_ramki = max_h
             w_ramki = round(max_h * proporcja)
@@ -365,7 +379,6 @@ class ModulScanMixin:
         self.SZEROKOSC_DOK_SKAN = max(140, int(w_ramki))
         self.WYSOKOSC_DOK_SKAN = max(140, int(h_ramki))
 
-        # Dopasowanie widoków i reset kadru
         self.ramka_kadrowania_skan.width = self.SZEROKOSC_DOK_SKAN
         self.ramka_kadrowania_skan.height = self.WYSOKOSC_DOK_SKAN
         self.img_pelny_podglad_skan.width = self.SZEROKOSC_DOK_SKAN
@@ -384,6 +397,8 @@ class ModulScanMixin:
             shutil.copyfile(sciezka, nowa_sciezka)
         except Exception:
             nowa_sciezka = sciezka
+
+        self._napraw_orientacje_exif(nowa_sciezka)
 
         self.zdjecie_skan["oryginal"] = nowa_sciezka
         self.zdjecie_skan["sciezka"] = nowa_sciezka
@@ -440,7 +455,6 @@ class ModulScanMixin:
         self.podglad_obrazu_skan.src_base64 = None
         self.podglad_obrazu_skan.src = str(nowa_sciezka)
 
-        # Ponowne dopasowanie wymiarów bez przekraczania szerokości ekranu
         self._dopasuj_pola_robocze_pod_obraz_skan(str(nowa_sciezka))
         self.page.update()
 
@@ -488,7 +502,7 @@ class ModulScanMixin:
         proc_prawo = ((self.SZEROKOSC_DOK_SKAN - self.crop_skan_x2) / self.SZEROKOSC_DOK_SKAN) * 100.0
         proc_dol = ((self.WYSOKOSC_DOK_SKAN - self.crop_skan_y2) / self.WYSOKOSC_DOK_SKAN) * 100.0
 
-        if proc_lewo == 0.0 and proc_gora == 0.0 and proc_prawo == 0.0 and proc_dol == 0.0:
+        if proc_lewo <= 0.5 and proc_gora <= 0.5 and proc_prawo <= 0.5 and proc_dol <= 0.5:
             return
 
         sciezka_akt = self.zdjecie_skan["sciezka"]
@@ -540,4 +554,4 @@ class ModulScanMixin:
         if picker:
             pliki = await picker.pick_files(allow_multiple=False, file_type=ft.FilePickerFileType.IMAGE)
             if pliki and len(pliki) > 0 and pliki[0].path:
-                self.ustaw_nowy_obraz_skan(pliki[0].path)
+                self.ustaw_nowy_obraz_skan(pliki[0].path)#FFFFFF
