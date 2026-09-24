@@ -282,6 +282,14 @@ class ModulDocMixin:
             text_size=12,
             expand=True
         )
+        # Dialog edytora tekstu z eksportem (dopasowany do szerokości ekranu)
+        self.txt_edytor_dok = ft.TextField(
+            multiline=True,
+            min_lines=14,
+            max_lines=22,
+            text_size=12,
+            expand=True
+        )
         self.dlg_wynik_dok = ft.AlertDialog(
             modal=True,
             title=ft.Row([
@@ -290,16 +298,36 @@ class ModulDocMixin:
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             content=ft.Container(
                 content=self.txt_edytor_dok,
-                width=360,
-                height=420
+                height=420,
+                expand=True
             ),
             actions=[
                 ft.Row([
-                    ft.Button(content=ft.Text("Kopiuj"), on_click=lambda e: asyncio.create_task(self._kopiuj_tekst_dok())),
-                    ft.Button(content=ft.Text("TXT"), on_click=lambda e: asyncio.create_task(self._eksportuj_dok("txt"))),
-                    ft.Button(content=ft.Text("Word"), on_click=lambda e: asyncio.create_task(self._eksportuj_dok("docx"))),
-                    ft.Button(content=ft.Text("Excel"), on_click=lambda e: asyncio.create_task(self._eksportuj_dok("xlsx"))),
-                ], spacing=4, alignment=ft.MainAxisAlignment.SPACE_AROUND)
+                    ft.Button(
+                        content=ft.Text("Kopiuj", size=12),
+                        expand=True,
+                        style=ft.ButtonStyle(padding=0),
+                        on_click=lambda e: asyncio.create_task(self._kopiuj_tekst_dok())
+                    ),
+                    ft.Button(
+                        content=ft.Text("TXT", size=12),
+                        expand=True,
+                        style=ft.ButtonStyle(padding=0),
+                        on_click=lambda e: asyncio.create_task(self._eksportuj_dok("txt"))
+                    ),
+                    ft.Button(
+                        content=ft.Text("Word", size=12),
+                        expand=True,
+                        style=ft.ButtonStyle(padding=0),
+                        on_click=lambda e: asyncio.create_task(self._eksportuj_dok("docx"))
+                    ),
+                    ft.Button(
+                        content=ft.Text("Excel", size=12),
+                        expand=True,
+                        style=ft.ButtonStyle(padding=0),
+                        on_click=lambda e: asyncio.create_task(self._eksportuj_dok("xlsx"))
+                    ),
+                ], spacing=4, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
             ]
         )
 
