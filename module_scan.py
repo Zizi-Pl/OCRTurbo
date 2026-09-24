@@ -11,9 +11,13 @@ import core
 
 class ModulScanMixin:
     def _inicjalizuj_modul_skanera(self):
-        self.SZEROKOSC_DOK_SKAN = 360
-        self.WYSOKOSC_DOK_SKAN = 600
-        self.UCHWYT_ROZMIAR_DOK_SKAN = 48
+        # Bezpieczne maksymalne wymiary kadru dopasowane do ekranu telefonu
+        self.MAX_SZEROKOSC_KADRU = 340.0
+        self.MAX_WYSOKOSC_KADRU = 500.0
+        self.UCHWYT_ROZMIAR_DOK_SKAN = 44
+
+        self.SZEROKOSC_DOK_SKAN = int(self.MAX_SZEROKOSC_KADRU)
+        self.WYSOKOSC_DOK_SKAN = int(self.MAX_WYSOKOSC_KADRU)
 
         self.crop_skan_x1 = 0.0
         self.crop_skan_y1 = 0.0
@@ -60,10 +64,10 @@ class ModulScanMixin:
             return ft.Container(
                 alignment=ft.Alignment(0, 0),
                 content=ft.Container(
-                    width=28, height=28,
+                    width=26, height=26,
                     bgcolor=ft.Colors.ORANGE_ACCENT,
-                    border_radius=14,
-                    border=ft.Border.all(2.5, ft.Colors.WHITE)
+                    border_radius=13,
+                    border=ft.Border.all(2.0, ft.Colors.WHITE)
                 ),
                 width=self.UCHWYT_ROZMIAR_DOK_SKAN,
                 height=self.UCHWYT_ROZMIAR_DOK_SKAN
@@ -86,35 +90,35 @@ class ModulScanMixin:
             alignment=ft.Alignment(0, 0)
         )
 
-        # Górna belka: duże obroty + równe, 3-znakowe skróty filtrów
+        # Górna belka: obroty i filtry
         self.btn_obrot_l_skan = ft.IconButton(
-            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=34,
-            width=62, height=58,
+            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=30,
+            width=54, height=52,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w lewo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_skan(90))
         )
         self.btn_f_bw_skan = ft.Button(
-            content=ft.Text("B&W", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("B&W", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_skan("bw"))
         )
         self.btn_f_szary_skan = ft.Button(
-            content=ft.Text("GRY", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("GRY", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_skan("szary"))
         )
         self.btn_f_wyostrz_skan = ft.Button(
-            content=ft.Text("SHP", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("SHP", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_skan("wyostrz"))
         )
         self.btn_obrot_r_skan = ft.IconButton(
-            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=34,
-            width=62, height=58,
+            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=30,
+            width=54, height=52,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w prawo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_skan(-90))
@@ -128,29 +132,29 @@ class ModulScanMixin:
             self.btn_obrot_r_skan
         ], spacing=4)
 
-        # Przyciski dolne ekranu obróbki
+        # Przyciski dolne
         self.btn_pelny_anuluj_skan = ft.Button(
-            content=ft.Text("Anuluj", size=13),
-            height=48, expand=True,
+            content=ft.Text("Anuluj", size=12),
+            height=46, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
             on_click=lambda e: asyncio.create_task(self._zamknij_pelny_ekran_skan())
         )
         self.btn_pelny_cofnij_skan = ft.Button(
-            content=ft.Text("Cofnij", size=13),
-            height=48, expand=True,
+            content=ft.Text("Cofnij", size=12),
+            height=46, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
             disabled=True,
             on_click=lambda e: self._cofnij_krok_pelny_skan()
         )
         self.btn_pelny_zatwierdz_skan = ft.Button(
-            content=ft.Text("Zatwierdź kadr", size=13),
-            height=48, expand=True,
+            content=ft.Text("Zatwierdź kadr", size=12),
+            height=46, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
             on_click=lambda e: asyncio.create_task(self._zatwierdz_krok_pelny_skan())
         )
         self.btn_pelny_udostepnij_skan = ft.Button(
-            content=ft.Text("Udostępnij", size=13, weight=ft.FontWeight.BOLD),
-            height=48, expand=True,
+            content=ft.Text("Udostępnij", size=12, weight=ft.FontWeight.BOLD),
+            height=46, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8), padding=0),
             on_click=lambda e: asyncio.create_task(self._zakoncz_i_udostepnij_skan())
         )
@@ -159,21 +163,25 @@ class ModulScanMixin:
             self.btn_pelny_cofnij_skan,
             self.btn_pelny_zatwierdz_skan,
             self.btn_pelny_udostepnij_skan
-        ], spacing=6)
+        ], spacing=4)
 
         # Kontener pełnego ekranu kadrowania
         self.widok_kadrowania_skan = ft.Container(
             content=ft.Column([
                 self.wiersz_filtrow_skan,
-                ft.Container(content=self.ramka_kadrowania_skan, alignment=ft.Alignment(0, 0), expand=True),
+                ft.Container(
+                    content=self.ramka_kadrowania_skan,
+                    alignment=ft.Alignment(0, 0),
+                    expand=True
+                ),
                 self.wiersz_akcji_pelnych_skan
-            ], spacing=8, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            padding=8,
+            ], spacing=8, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=6,
             expand=True,
             visible=False
         )
 
-        # Kontrolki ekranu głównego skanera
+        # Kontrolki ekranu głównego
         self.status_skan = ft.Text(
             "Zrób zdjęcie lub wybierz skan z galerii.",
             size=12, color=ft.Colors.ORANGE_200, text_align=ft.TextAlign.CENTER
@@ -235,7 +243,7 @@ class ModulScanMixin:
             self.btn_udostepnij_gotowe_skan
         ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
-        # Kontener nadrzędny widoku skanera
+        # Główny kontener widoku
         self.widok_skanera = ft.Column([
             self.kolumna_glowna_skan,
             self.widok_kadrowania_skan
@@ -252,29 +260,34 @@ class ModulScanMixin:
         return getattr(e, "delta_x", 0.0), getattr(e, "delta_y", 0.0)
 
     def _aktualizuj_kadrowanie_skan(self):
-        w = self.SZEROKOSC_DOK_SKAN
-        h = self.WYSOKOSC_DOK_SKAN
+        w = float(self.SZEROKOSC_DOK_SKAN)
+        h = float(self.WYSOKOSC_DOK_SKAN)
 
         self.crop_skan_x1 = max(0.0, min(self.crop_skan_x1, w - self.UCHWYT_ROZMIAR_DOK_SKAN))
         self.crop_skan_y1 = max(0.0, min(self.crop_skan_y1, h - self.UCHWYT_ROZMIAR_DOK_SKAN))
-        self.crop_skan_x2 = max(self.crop_skan_x1 + self.UCHWYT_ROZMIAR_DOK_SKAN, min(self.crop_skan_x2, float(w)))
-        self.crop_skan_y2 = max(self.crop_skan_y1 + self.UCHWYT_ROZMIAR_DOK_SKAN, min(self.crop_skan_y2, float(h)))
+        self.crop_skan_x2 = max(self.crop_skan_x1 + self.UCHWYT_ROZMIAR_DOK_SKAN, min(self.crop_skan_x2, w))
+        self.crop_skan_y2 = max(self.crop_skan_y1 + self.UCHWYT_ROZMIAR_DOK_SKAN, min(self.crop_skan_y2, h))
 
         x1, y1, x2, y2 = self.crop_skan_x1, self.crop_skan_y1, self.crop_skan_x2, self.crop_skan_y2
 
+        self.maska_skan_gora.width = w
         self.maska_skan_gora.height = y1
-        self.maska_skan_dol.height = h - y2
+
+        self.maska_skan_dol.width = w
+        self.maska_skan_dol.height = max(0.0, h - y2)
+
         self.maska_skan_lewo.top = y1
-        self.maska_skan_lewo.height = y2 - y1
+        self.maska_skan_lewo.height = max(0.0, y2 - y1)
         self.maska_skan_lewo.width = x1
+
         self.maska_skan_prawo.top = y1
-        self.maska_skan_prawo.height = y2 - y1
-        self.maska_skan_prawo.width = w - x2
+        self.maska_skan_prawo.height = max(0.0, y2 - y1)
+        self.maska_skan_prawo.width = max(0.0, w - x2)
 
         self.strefa_srodka_skan.top = y1
         self.strefa_srodka_skan.left = x1
-        self.strefa_srodka_skan.width = x2 - x1
-        self.strefa_srodka_skan.height = y2 - y1
+        self.strefa_srodka_skan.width = max(0.0, x2 - x1)
+        self.strefa_srodka_skan.height = max(0.0, y2 - y1)
 
         self.uchwyt_skan_lt.top = y1
         self.uchwyt_skan_lt.left = x1
@@ -284,6 +297,7 @@ class ModulScanMixin:
         self.uchwyt_skan_lb.left = x1
         self.uchwyt_skan_rb.top = y2 - self.UCHWYT_ROZMIAR_DOK_SKAN
         self.uchwyt_skan_rb.left = x2 - self.UCHWYT_ROZMIAR_DOK_SKAN
+
         self.page.update()
 
     def _przesun_uchwyt_skan(self, ktory: str, dx: float, dy: float):
@@ -334,23 +348,24 @@ class ModulScanMixin:
         except Exception:
             w_orig, h_orig = 1000, 1400
 
-        czy_poziom = (w_orig > h_orig)
-        if czy_poziom:
-            max_w, max_h = 640.0, 310.0
-        else:
-            max_w, max_h = 360.0, 560.0
+        # Zawsze trzymamy się maksymalnej szerokości ekranu pionowego
+        max_w = self.MAX_SZEROKOSC_KADRU
+        max_h = self.MAX_WYSOKOSC_KADRU
 
         proporcja = w_orig / max(1, h_orig)
-        if proporcja >= (max_w / max_h):
-            w_ramki = max_w
-            h_ramki = round(max_w / proporcja)
-        else:
+
+        # Dopasowanie do ramki (fit: contain)
+        if (max_w / max_h) > proporcja:
             h_ramki = max_h
             w_ramki = round(max_h * proporcja)
+        else:
+            w_ramki = max_w
+            h_ramki = round(max_w / proporcja)
 
-        self.SZEROKOSC_DOK_SKAN = max(180, int(w_ramki))
-        self.WYSOKOSC_DOK_SKAN = max(180, int(h_ramki))
+        self.SZEROKOSC_DOK_SKAN = max(140, int(w_ramki))
+        self.WYSOKOSC_DOK_SKAN = max(140, int(h_ramki))
 
+        # Dopasowanie widoków i reset kadru
         self.ramka_kadrowania_skan.width = self.SZEROKOSC_DOK_SKAN
         self.ramka_kadrowania_skan.height = self.WYSOKOSC_DOK_SKAN
         self.img_pelny_podglad_skan.width = self.SZEROKOSC_DOK_SKAN
@@ -425,6 +440,7 @@ class ModulScanMixin:
         self.podglad_obrazu_skan.src_base64 = None
         self.podglad_obrazu_skan.src = str(nowa_sciezka)
 
+        # Ponowne dopasowanie wymiarów bez przekraczania szerokości ekranu
         self._dopasuj_pola_robocze_pod_obraz_skan(str(nowa_sciezka))
         self.page.update()
 

@@ -398,20 +398,20 @@ class ModulPZMixin:
         except Exception:
             w_orig, h_orig = 1000, 1400
 
-        czy_poziom = (w_orig > h_orig)
+        # Telefon ZAWSZE pozostaje w pionie – nie dotykamy orientacji urządzenia!
+        self._ustaw_orientacje_sync([ft.DeviceOrientation.PORTRAIT_UP])
 
-        if czy_poziom:
-            self._ustaw_orientacje_sync([ft.DeviceOrientation.LANDSCAPE_LEFT, ft.DeviceOrientation.LANDSCAPE_RIGHT])
-            max_w, max_h = 640.0, 310.0
-        else:
-            self._ustaw_orientacje_sync([ft.DeviceOrientation.PORTRAIT_UP])
-            max_w, max_h = 360.0, 560.0
+        # Maksymalny dostępny obszar w widoku pionowym
+        max_w = 350.0
+        max_h = 540.0
 
         proporcja = w_orig / max(1, h_orig)
         if proporcja >= (max_w / max_h):
+            # Obraz poziomy lub szerszy niż pionowy kontener
             w_ramki = max_w
             h_ramki = round(max_w / proporcja)
         else:
+            # Obraz pionowy
             h_ramki = max_h
             w_ramki = round(max_h * proporcja)
 
