@@ -9,7 +9,6 @@ dependencies = [
     "httpx",
     "pillow",
     "thefuzz",
-    "Levenshtein",
     "python-docx",
     "openpyxl",
 ]
