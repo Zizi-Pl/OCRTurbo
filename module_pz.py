@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime
 import flet as ft
 import httpx
-from PIL import Image
+from PIL import Image, ImageOps
 
 import config
 import core
@@ -14,10 +14,13 @@ import core
 
 class ModulPZMixin:
     def _inicjalizuj_modul_pz(self):
-        # Wymiary robocze obszaru kadrowania
-        self.SZEROKOSC_DOK_PZ = 360
-        self.WYSOKOSC_DOK_PZ = 600
-        self.UCHWYT_ROZMIAR_DOK_PZ = 48
+        # Bezpieczne granice obszaru roboczego w pionie dla ekranu telefonu
+        self.MAX_SZEROKOSC_ROBOCZA_PZ = 330.0
+        self.MAX_WYSOKOSC_ROBOCZA_PZ = 460.0
+        self.UCHWYT_ROZMIAR_DOK_PZ = 40
+
+        self.SZEROKOSC_DOK_PZ = int(self.MAX_SZEROKOSC_ROBOCZA_PZ)
+        self.WYSOKOSC_DOK_PZ = int(self.MAX_WYSOKOSC_ROBOCZA_PZ)
 
         self.crop_pz_x1 = 0.0
         self.crop_pz_y1 = 0.0
@@ -63,19 +66,19 @@ class ModulPZMixin:
             return ft.Container(
                 alignment=ft.Alignment(0, 0),
                 content=ft.Container(
-                    width=28, height=28,
+                    width=26, height=26,
                     bgcolor=ft.Colors.BLUE_ACCENT,
-                    border_radius=14,
-                    border=ft.Border.all(2.5, ft.Colors.WHITE)
+                    border_radius=13,
+                    border=ft.Border.all(2.0, ft.Colors.WHITE)
                 ),
                 width=self.UCHWYT_ROZMIAR_DOK_PZ,
                 height=self.UCHWYT_ROZMIAR_DOK_PZ
             )
 
-        self.uchwyt_pz_lt = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("lt", *self._pobierz_deltas_pz(e)), top=0, left=0)
-        self.uchwyt_pz_rt = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("rt", *self._pobierz_deltas_pz(e)), top=0, left=self.SZEROKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ)
-        self.uchwyt_pz_lb = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("lb", *self._pobierz_deltas_pz(e)), top=self.WYSOKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ, left=0)
-        self.uchwyt_pz_rb = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("rb", *self._pobierz_deltas_pz(e)), top=self.WYSOKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ, left=self.SZEROKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ)
+        self.uchwyt_pz_lt = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("lt", *self._pobierz_deltas_pz(e)))
+        self.uchwyt_pz_rt = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("rt", *self._pobierz_deltas_pz(e)))
+        self.uchwyt_pz_lb = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("lb", *self._pobierz_deltas_pz(e)))
+        self.uchwyt_pz_rb = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("rb", *self._pobierz_deltas_pz(e)))
 
         self.ramka_kadrowania_pz = ft.Container(
             content=ft.Stack([
@@ -89,35 +92,35 @@ class ModulPZMixin:
             alignment=ft.Alignment(0, 0)
         )
 
-        # Górna belka: Obrót Lewo | Filtry B&W, GRY, SHP | Obrót Prawo (duże przyciski 58px)
+        # Górna belka
         self.btn_obrot_l_pz = ft.IconButton(
-            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=34,
-            width=62, height=58,
+            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=28,
+            width=50, height=50,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w lewo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_pz(90))
         )
         self.btn_f_bw = ft.Button(
-            content=ft.Text("B&W", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("B&W", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_pz("bw"))
         )
         self.btn_f_szary = ft.Button(
-            content=ft.Text("GRY", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("GRY", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_pz("szary"))
         )
         self.btn_f_wyostrz = ft.Button(
-            content=ft.Text("SHP", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("SHP", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_pz("wyostrz"))
         )
         self.btn_obrot_r_pz = ft.IconButton(
-            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=34,
-            width=62, height=58,
+            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=28,
+            width=50, height=50,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w prawo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_pz(-90))
@@ -131,29 +134,29 @@ class ModulPZMixin:
             self.btn_obrot_r_pz
         ], spacing=4)
 
-        # Przyciski dolne (wysokość 60px)
+        # Przyciski dolne
         self.btn_pelny_anuluj = ft.Button(
-            content=ft.Text("Anuluj", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Anuluj", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._zamknij_pelny_ekran_pz(zapisz=False))
         )
         self.btn_pelny_cofnij = ft.Button(
-            content=ft.Text("Cofnij", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Cofnij", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             disabled=True,
             on_click=lambda e: self._cofnij_krok_pelny_pz()
         )
         self.btn_pelny_zatwierdz = ft.Button(
-            content=ft.Text("Zatwierdź", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Zatwierdź", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._zatwierdz_krok_pelny_pz())
         )
         self.btn_pelny_wyslij = ft.Button(
-            content=ft.Text("Wyślij", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Wyślij", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._wyslij_pelny_ekran_pz())
         )
@@ -162,16 +165,21 @@ class ModulPZMixin:
             self.btn_pelny_cofnij,
             self.btn_pelny_zatwierdz,
             self.btn_pelny_wyslij
-        ], spacing=6)
+        ], spacing=4)
 
         # Dedykowany pełny ekran kadrowania
         self.widok_kadrowania_pz = ft.Container(
             content=ft.Column([
                 self.wiersz_filtrow_pz,
-                ft.Container(content=self.ramka_kadrowania_pz, alignment=ft.Alignment(0, 0), expand=True),
+                ft.Container(
+                    content=self.ramka_kadrowania_pz,
+                    alignment=ft.Alignment(0, 0),
+                    expand=True,
+                    padding=ft.Padding(top=6, bottom=6, left=0, right=0)
+                ),
                 self.wiersz_akcji_pelnych_pz
-            ], spacing=8, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            padding=8,
+            ], spacing=6, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=6,
             expand=True,
             visible=False
         )
@@ -316,38 +324,52 @@ class ModulPZMixin:
         return getattr(e, "delta_x", 0.0), getattr(e, "delta_y", 0.0)
 
     def _aktualizuj_kadrowanie_pz(self):
-        w = self.SZEROKOSC_DOK_PZ
-        h = self.WYSOKOSC_DOK_PZ
+        w = float(self.SZEROKOSC_DOK_PZ)
+        h = float(self.WYSOKOSC_DOK_PZ)
+        min_rozmiar = 40.0
 
-        self.crop_pz_x1 = max(0.0, min(self.crop_pz_x1, w - self.UCHWYT_ROZMIAR_DOK_PZ))
-        self.crop_pz_y1 = max(0.0, min(self.crop_pz_y1, h - self.UCHWYT_ROZMIAR_DOK_PZ))
-        self.crop_pz_x2 = max(self.crop_pz_x1 + self.UCHWYT_ROZMIAR_DOK_PZ, min(self.crop_pz_x2, float(w)))
-        self.crop_pz_y2 = max(self.crop_pz_y1 + self.UCHWYT_ROZMIAR_DOK_PZ, min(self.crop_pz_y2, float(h)))
+        self.crop_pz_x1 = max(0.0, min(self.crop_pz_x1, w - min_rozmiar))
+        self.crop_pz_y1 = max(0.0, min(self.crop_pz_y1, h - min_rozmiar))
+        self.crop_pz_x2 = max(self.crop_pz_x1 + min_rozmiar, min(self.crop_pz_x2, w))
+        self.crop_pz_y2 = max(self.crop_pz_y1 + min_rozmiar, min(self.crop_pz_y2, h))
 
         x1, y1, x2, y2 = self.crop_pz_x1, self.crop_pz_y1, self.crop_pz_x2, self.crop_pz_y2
+        pol_uchwytu = self.UCHWYT_ROZMIAR_DOK_PZ / 2.0
 
+        # Maski przyciemniające
+        self.maska_pz_gora.width = w
         self.maska_pz_gora.height = y1
-        self.maska_pz_dol.height = h - y2
-        self.maska_pz_lewo.top = y1
-        self.maska_pz_lewo.height = y2 - y1
-        self.maska_pz_lewo.width = x1
-        self.maska_pz_prawo.top = y1
-        self.maska_pz_prawo.height = y2 - y1
-        self.maska_pz_prawo.width = w - x2
 
+        self.maska_pz_dol.width = w
+        self.maska_pz_dol.height = max(0.0, h - y2)
+
+        self.maska_pz_lewo.top = y1
+        self.maska_pz_lewo.height = max(0.0, y2 - y1)
+        self.maska_pz_lewo.width = x1
+
+        self.maska_pz_prawo.top = y1
+        self.maska_pz_prawo.height = max(0.0, y2 - y1)
+        self.maska_pz_prawo.width = max(0.0, w - x2)
+
+        # Strefa środkowa
         self.strefa_srodka_pz.top = y1
         self.strefa_srodka_pz.left = x1
-        self.strefa_srodka_pz.width = x2 - x1
-        self.strefa_srodka_pz.height = y2 - y1
+        self.strefa_srodka_pz.width = max(0.0, x2 - x1)
+        self.strefa_srodka_pz.height = max(0.0, y2 - y1)
 
-        self.uchwyt_pz_lt.top = y1
-        self.uchwyt_pz_lt.left = x1
-        self.uchwyt_pz_rt.top = y1
-        self.uchwyt_pz_rt.left = x2 - self.UCHWYT_ROZMIAR_DOK_PZ
-        self.uchwyt_pz_lb.top = y2 - self.UCHWYT_ROZMIAR_DOK_PZ
-        self.uchwyt_pz_lb.left = x1
-        self.uchwyt_pz_rb.top = y2 - self.UCHWYT_ROZMIAR_DOK_PZ
-        self.uchwyt_pz_rb.left = x2 - self.UCHWYT_ROZMIAR_DOK_PZ
+        # Pozycjonowanie uchwytów (środek uchwytu na krawędzi kadru z ograniczeniem wewnątrz ramki)
+        self.uchwyt_pz_lt.left = max(0.0, x1 - pol_uchwytu)
+        self.uchwyt_pz_lt.top = max(0.0, y1 - pol_uchwytu)
+
+        self.uchwyt_pz_rt.left = min(w - self.UCHWYT_ROZMIAR_DOK_PZ, x2 - pol_uchwytu)
+        self.uchwyt_pz_rt.top = max(0.0, y1 - pol_uchwytu)
+
+        self.uchwyt_pz_lb.left = max(0.0, x1 - pol_uchwytu)
+        self.uchwyt_pz_lb.top = min(h - self.UCHWYT_ROZMIAR_DOK_PZ, y2 - pol_uchwytu)
+
+        self.uchwyt_pz_rb.left = min(w - self.UCHWYT_ROZMIAR_DOK_PZ, x2 - pol_uchwytu)
+        self.uchwyt_pz_rb.top = min(h - self.UCHWYT_ROZMIAR_DOK_PZ, y2 - pol_uchwytu)
+
         self.page.update()
 
     def _przesun_uchwyt_pz(self, ktory: str, dx: float, dy: float):
@@ -398,25 +420,21 @@ class ModulPZMixin:
         except Exception:
             w_orig, h_orig = 1000, 1400
 
-        # Telefon ZAWSZE pozostaje w pionie – nie dotykamy orientacji urządzenia!
         self._ustaw_orientacje_sync([ft.DeviceOrientation.PORTRAIT_UP])
 
-        # Maksymalny dostępny obszar w widoku pionowym
-        max_w = 350.0
-        max_h = 540.0
+        max_w = self.MAX_SZEROKOSC_ROBOCZA_PZ
+        max_h = self.MAX_WYSOKOSC_ROBOCZA_PZ
 
         proporcja = w_orig / max(1, h_orig)
-        if proporcja >= (max_w / max_h):
-            # Obraz poziomy lub szerszy niż pionowy kontener
-            w_ramki = max_w
-            h_ramki = round(max_w / proporcja)
-        else:
-            # Obraz pionowy
+        if (max_w / max_h) > proporcja:
             h_ramki = max_h
             w_ramki = round(max_h * proporcja)
+        else:
+            w_ramki = max_w
+            h_ramki = round(max_w / proporcja)
 
-        self.SZEROKOSC_DOK_PZ = max(180, int(w_ramki))
-        self.WYSOKOSC_DOK_PZ = max(180, int(h_ramki))
+        self.SZEROKOSC_DOK_PZ = max(140, int(w_ramki))
+        self.WYSOKOSC_DOK_PZ = max(140, int(h_ramki))
 
         self.ramka_kadrowania_pz.width = self.SZEROKOSC_DOK_PZ
         self.ramka_kadrowania_pz.height = self.WYSOKOSC_DOK_PZ
@@ -440,6 +458,17 @@ class ModulPZMixin:
             except Exception:
                 pass
 
+    def _napraw_orientacje_exif(self, sciezka: str) -> str:
+        """Fizycznie obraca plik zgodnie z tagiem EXIF aparatu."""
+        try:
+            with Image.open(sciezka) as img:
+                img_poprawiony = ImageOps.exif_transpose(img)
+                if img_poprawiony:
+                    img_poprawiony.save(sciezka, quality=95)
+        except Exception:
+            pass
+        return sciezka
+
     def ustaw_stan_przycisku_foto_pz(self, czy_ma_zdjecie: bool):
         self.kontener_podgladu_pz.visible = czy_ma_zdjecie
         self.btn_otworz_kadrowanie.visible = czy_ma_zdjecie
@@ -456,7 +485,10 @@ class ModulPZMixin:
             shutil.copyfile(sciezka, nowa_sciezka)
         except Exception:
             nowa_sciezka = sciezka
-            
+
+        # Kluczowe: natychmiastowe wyrównanie orientacji EXIF
+        self._napraw_orientacje_exif(nowa_sciezka)
+
         self.aktualne_zdjecie_pz["sciezka"] = nowa_sciezka
         self.historia_pz = [(nowa_sciezka, None)]
         self.aktywny_filtr_pz = None
@@ -535,12 +567,12 @@ class ModulPZMixin:
             None, core.filtruj_plik_graficzny, sciezka_akt, typ
         )
 
-        self.aktualne_zdjecie_pz["sciezka"] = nowa_sciezka
+        self.aktualne_zdjecie_pz["sciezka"] = str(nowa_sciezka)
         self.aktywny_filtr_pz = typ
         self.img_pelny_podglad_pz.src_base64 = None
-        self.img_pelny_podglad_pz.src = nowa_sciezka
+        self.img_pelny_podglad_pz.src = str(nowa_sciezka)
         self.podglad_obrazu_pz.src_base64 = None
-        self.podglad_obrazu_pz.src = nowa_sciezka
+        self.podglad_obrazu_pz.src = str(nowa_sciezka)
 
         self._odswiez_styl_przyciskow_filtrow_pz()
         self.page.update()
@@ -562,7 +594,7 @@ class ModulPZMixin:
         proc_prawo = ((self.SZEROKOSC_DOK_PZ - self.crop_pz_x2) / self.SZEROKOSC_DOK_PZ) * 100.0
         proc_dol = ((self.WYSOKOSC_DOK_PZ - self.crop_pz_y2) / self.WYSOKOSC_DOK_PZ) * 100.0
 
-        if proc_lewo == 0.0 and proc_gora == 0.0 and proc_prawo == 0.0 and proc_dol == 0.0:
+        if proc_lewo <= 0.5 and proc_gora <= 0.5 and proc_prawo <= 0.5 and proc_dol <= 0.5:
             return
 
         sciezka_akt = self.aktualne_zdjecie_pz["sciezka"]
@@ -575,27 +607,27 @@ class ModulPZMixin:
             proc_lewo, proc_gora, proc_prawo, proc_dol
         )
 
-        self.aktualne_zdjecie_pz["sciezka"] = wyciety_plik
+        self.aktualne_zdjecie_pz["sciezka"] = str(wyciety_plik)
         self.img_pelny_podglad_pz.src_base64 = None
-        self.img_pelny_podglad_pz.src = wyciety_plik
+        self.img_pelny_podglad_pz.src = str(wyciety_plik)
         self.podglad_obrazu_pz.src_base64 = None
-        self.podglad_obrazu_pz.src = wyciety_plik
+        self.podglad_obrazu_pz.src = str(wyciety_plik)
 
-        self._dopasuj_pola_robocze_pod_obraz(wyciety_plik)
+        self._dopasuj_pola_robocze_pod_obraz(str(wyciety_plik))
 
     def _cofnij_krok_pelny_pz(self):
         if not self.historia_pz:
             return
         poprzednia_sciezka, poprzedni_filtr = self.historia_pz.pop()
-        self.aktualne_zdjecie_pz["sciezka"] = poprzednia_sciezka
+        self.aktualne_zdjecie_pz["sciezka"] = str(poprzednia_sciezka)
         self.aktywny_filtr_pz = poprzedni_filtr
 
         self.img_pelny_podglad_pz.src_base64 = None
-        self.img_pelny_podglad_pz.src = poprzednia_sciezka
+        self.img_pelny_podglad_pz.src = str(poprzednia_sciezka)
         self.podglad_obrazu_pz.src_base64 = None
-        self.podglad_obrazu_pz.src = poprzednia_sciezka
+        self.podglad_obrazu_pz.src = str(poprzednia_sciezka)
 
-        self._dopasuj_pola_robocze_pod_obraz(poprzednia_sciezka)
+        self._dopasuj_pola_robocze_pod_obraz(str(poprzednia_sciezka))
         self._odswiez_styl_przyciskow_filtrow_pz()
         self.btn_pelny_cofnij.disabled = (len(self.historia_pz) == 0)
         self.page.update()
@@ -775,7 +807,6 @@ class ModulPZMixin:
 
             loop = asyncio.get_running_loop()
 
-            # Diagnostyka wagi pliku przed kompresją
             waga_oryg_kb = round(os.path.getsize(sciezka_obrazu) / 1024, 1)
 
             if not uzywa_chmury:
@@ -820,11 +851,9 @@ class ModulPZMixin:
                     if not serwer_zyje:
                         raise TimeoutError(f"Serwer pod adresem {ip_lokalne} nie uruchomił się w czasie {maks_czas_oczekiwania}s.")
 
-            # Kompresja i wymiary
             wymiar_obrazu = aktualny_konfig.get("image_resolution", 1800)
             base64_image = await loop.run_in_executor(None, core.kompresuj_do_base64, sciezka_obrazu, wymiar_obrazu)
             
-            # Wymiary faktyczne
             try:
                 with Image.open(sciezka_obrazu) as img:
                     w_px, h_px = img.size
@@ -847,8 +876,8 @@ class ModulPZMixin:
                 "   - k: kod kreskowy EAN lub indeks. Pamiętaj, że standardowe kody EAN mają zazwyczaj dokładnie 13 cyfr (EAN-13), a mniejsze opakowania lub kody skrócone 8 cyfr (EAN-8). Odczytaj je bardzo uważnie, cyfra po cyfrze, bez pomijania znaków.\n"
                 "   - j: jednostka miary ('kg', 'szt', 'op')\n"
                 "   - i: ilość/waga:\n"
-                "        * Jeśli j='szt': ilość MUSI być liczbą całkowitą (np. 1, 10, 24)\n"
-                "        * Jeśli j='kg': ilość może być ułamkiem dziesiętnym z kropką (np. 1.450)\n"
+                "       * Jeśli j='szt': ilość MUSI być liczbą całkowitą (np. 1, 10, 24)\n"
+                "       * Jeśli j='kg': ilość może być ułamkiem dziesiętnym z kropką (np. 1.450)\n"
                 "   - c: ostateczna cena jednostkowa netto PO RABACIE\n"
                 "   - w: wartość netto pozycji (ilość × cena netto po rabacie)\n"
                 "   - v: stawka VAT (oczekiwane: 0, 5, 8, 23, zw, np)\n\n"
@@ -953,7 +982,6 @@ class ModulPZMixin:
             odp_tekst = (wybor.get("message", {}).get("content") or "").strip()
             powod_konca = wybor.get("finish_reason")
 
-            # Telemetria tokenów i wydajności
             uzycie = dane_odp.get("usage") or {}
             in_tok = uzycie.get("prompt_tokens", 0)
             out_tok = uzycie.get("completion_tokens", 0)
@@ -972,7 +1000,6 @@ class ModulPZMixin:
             if powod_konca == "length":
                 self.ui.dopisz_log("⚠️ OSTRZEŻENIE: Odpowiedź modelu została ucięta (limit tokenów)!", ft.Colors.RED)
 
-            # Parsowanie JSON
             dane = None
             try:
                 dane = json.loads(odp_tekst)
@@ -990,7 +1017,6 @@ class ModulPZMixin:
 
             dane = core.oczysc_odpowiedz_llm(dane)
 
-            # Telemetria biznesowa faktury
             wystawca_nazwa = (dane.get("w") or {}).get("n") or "Nieznany"
             wystawca_nip = (dane.get("w") or {}).get("nip") or "Brak"
             nr_dok = dane.get("nr") or "Brak numeru"
@@ -999,14 +1025,12 @@ class ModulPZMixin:
             self.ui.dopisz_log(f"📄 Faktura: {nr_dok} | Kontrahent: {wystawca_nazwa} (NIP: {wystawca_nip})", ft.Colors.GREEN)
             self.ui.dopisz_log(f"📦 Liczba odczytanych pozycji: {len(pozycje_ocr)}", ft.Colors.WHITE)
 
-            # Dopasowywanie do bazy PC-Market
             self.ui.dopisz_log("Dopasowywanie pozycji do bazy PC-Market...")
             aktualna_baza_sciezka = config.pobierz_aktualna_sciezke_bazy(aktualny_konfig)
             baza_towarowa, dane, status_sum, info_sumy = await loop.run_in_executor(
                 None, core.dopasuj_wszystkie_pozycje_w_tle, dane, uzywa_bazy, aktualna_baza_sciezka
             )
 
-            # Statystyka skuteczności bazy
             pozycje_koncowe = dane.get("p") or []
             dopasowane_z_bazy = sum(1 for p in pozycje_koncowe if p.get("z_bazy"))
             skutecznosc_proc = round((dopasowane_z_bazy / len(pozycje_koncowe) * 100), 1) if pozycje_koncowe else 0
