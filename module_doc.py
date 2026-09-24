@@ -1,9 +1,10 @@
 import os
+import shutil
 import asyncio
 from datetime import datetime
 import flet as ft
 import httpx
-from PIL import Image
+from PIL import Image, ImageOps
 
 import config
 import core
@@ -11,10 +12,13 @@ import core
 
 class ModulDocMixin:
     def _inicjalizuj_modul_dok(self):
-        # Parametry klatki kadrowania
-        self.SZEROKOSC_DOK_DOC = 350
-        self.WYSOKOSC_DOK_DOC = 540
-        self.UCHWYT_ROZMIAR_DOK_DOC = 48
+        # Bezpieczne granice kadrowania dopasowane do ekranu telefonu
+        self.MAX_SZEROKOSC_ROBOCZA_DOC = 330.0
+        self.MAX_WYSOKOSC_ROBOCZA_DOC = 460.0
+        self.UCHWYT_ROZMIAR_DOK_DOC = 40
+
+        self.SZEROKOSC_DOK_DOC = int(self.MAX_SZEROKOSC_ROBOCZA_DOC)
+        self.WYSOKOSC_DOK_DOC = int(self.MAX_WYSOKOSC_ROBOCZA_DOC)
 
         self.crop_doc_x1 = 0.0
         self.crop_doc_y1 = 0.0
@@ -24,6 +28,8 @@ class ModulDocMixin:
 
         self.historia_dok = []
         self.aktywny_filtr_dok = None
+        self.zdjecie_dok = {"sciezka": None}
+        self.ostatni_wynik_dok = {"tekst": ""}
 
     def _inicjalizuj_modul_dokument(self):
         self._inicjalizuj_modul_dok()
@@ -63,19 +69,19 @@ class ModulDocMixin:
             return ft.Container(
                 alignment=ft.Alignment(0, 0),
                 content=ft.Container(
-                    width=28, height=28,
+                    width=26, height=26,
                     bgcolor=ft.Colors.BLUE_ACCENT,
-                    border_radius=14,
-                    border=ft.Border.all(2.5, ft.Colors.WHITE)
+                    border_radius=13,
+                    border=ft.Border.all(2.0, ft.Colors.WHITE)
                 ),
                 width=self.UCHWYT_ROZMIAR_DOK_DOC,
                 height=self.UCHWYT_ROZMIAR_DOK_DOC
             )
 
-        self.uchwyt_doc_lt = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("lt", *self._pobierz_deltas_dok(e)), top=0, left=0)
-        self.uchwyt_doc_rt = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("rt", *self._pobierz_deltas_dok(e)), top=0, left=self.SZEROKOSC_DOK_DOC - self.UCHWYT_ROZMIAR_DOK_DOC)
-        self.uchwyt_doc_lb = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("lb", *self._pobierz_deltas_dok(e)), top=self.WYSOKOSC_DOK_DOC - self.UCHWYT_ROZMIAR_DOK_DOC, left=0)
-        self.uchwyt_doc_rb = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("rb", *self._pobierz_deltas_dok(e)), top=self.WYSOKOSC_DOK_DOC - self.UCHWYT_ROZMIAR_DOK_DOC, left=self.SZEROKOSC_DOK_DOC - self.UCHWYT_ROZMIAR_DOK_DOC)
+        self.uchwyt_doc_lt = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("lt", *self._pobierz_deltas_dok(e)))
+        self.uchwyt_doc_rt = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("rt", *self._pobierz_deltas_dok(e)))
+        self.uchwyt_doc_lb = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("lb", *self._pobierz_deltas_dok(e)))
+        self.uchwyt_doc_rb = ft.GestureDetector(content=stworz_uchwyt_dok(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_dok("rb", *self._pobierz_deltas_dok(e)))
 
         self.ramka_kadrowania_dok = ft.Container(
             content=ft.Stack([
@@ -89,35 +95,35 @@ class ModulDocMixin:
             alignment=ft.Alignment(0, 0)
         )
 
-        # Górna belka obrotu i filtrów (58 px)
+        # Górna belka
         self.btn_obrot_l_dok = ft.IconButton(
-            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=34,
-            width=62, height=58,
+            icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, icon_size=28,
+            width=50, height=50,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w lewo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_dok(90))
         )
         self.btn_doc_f_bw = ft.Button(
-            content=ft.Text("B&W", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("B&W", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_dok("bw"))
         )
         self.btn_doc_f_szary = ft.Button(
-            content=ft.Text("GRY", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("GRY", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_dok("szary"))
         )
         self.btn_doc_f_wyostrz = ft.Button(
-            content=ft.Text("SHP", size=14, weight=ft.FontWeight.BOLD),
-            height=58, expand=True,
+            content=ft.Text("SHP", size=12, weight=ft.FontWeight.BOLD),
+            height=50, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._przelacz_filtr_pelny_dok("wyostrz"))
         )
         self.btn_obrot_r_dok = ft.IconButton(
-            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=34,
-            width=62, height=58,
+            icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, icon_size=28,
+            width=50, height=50,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, shape=ft.RoundedRectangleBorder(radius=10)),
             tooltip="Obróć w prawo (90°)",
             on_click=lambda e: asyncio.create_task(self.obroc_dok(-90))
@@ -131,29 +137,29 @@ class ModulDocMixin:
             self.btn_obrot_r_dok
         ], spacing=4)
 
-        # Dolne przyciski widoku edycji (60 px)
+        # Dolne przyciski
         self.btn_doc_anuluj = ft.Button(
-            content=ft.Text("Anuluj", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Anuluj", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._zamknij_pelny_ekran_dok(zapisz=False))
         )
         self.btn_doc_cofnij = ft.Button(
-            content=ft.Text("Cofnij", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Cofnij", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             disabled=True,
             on_click=lambda e: self._cofnij_krok_pelny_dok()
         )
         self.btn_doc_zatwierdz = ft.Button(
-            content=ft.Text("Zatwierdź", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Zatwierdź", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._zatwierdz_krok_pelny_dok())
         )
         self.btn_doc_wyslij = ft.Button(
-            content=ft.Text("Wyślij", size=15, weight=ft.FontWeight.BOLD),
-            height=60, expand=True,
+            content=ft.Text("Wyślij", size=13, weight=ft.FontWeight.BOLD),
+            height=52, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=10), padding=0),
             on_click=lambda e: asyncio.create_task(self._wyslij_pelny_ekran_dok())
         )
@@ -162,16 +168,21 @@ class ModulDocMixin:
             self.btn_doc_cofnij,
             self.btn_doc_zatwierdz,
             self.btn_doc_wyslij
-        ], spacing=6)
+        ], spacing=4)
 
         # Dedykowany pełny kontener kadrowania
         self.widok_kadrowania_dok = ft.Container(
             content=ft.Column([
                 self.wiersz_filtrow_dok,
-                ft.Container(content=self.ramka_kadrowania_dok, alignment=ft.Alignment(0, 0), expand=True),
+                ft.Container(
+                    content=self.ramka_kadrowania_dok,
+                    alignment=ft.Alignment(0, 0),
+                    expand=True,
+                    padding=6
+                ),
                 self.wiersz_akcji_pelnych_dok
-            ], spacing=8, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            padding=8,
+            ], spacing=6, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=6,
             expand=True,
             visible=False
         )
@@ -240,7 +251,7 @@ class ModulDocMixin:
                     ft.Text("ocrLmm Mobile", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.LIGHT_BLUE_400),
                     ft.Text("Skaner Dokumentów (Word/Excel/TXT)", size=11, color=ft.Colors.GREY_400)
                 ], spacing=1)
-            ], spacing=4, expand=True),
+            ]),
             self.btn_konsola_dok
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
@@ -262,10 +273,8 @@ class ModulDocMixin:
             self.widok_kadrowania_dok
         ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=0, visible=False)
 
-        # Alias pod main.py
         self.widok_dokument = self.widok_dok
 
-        # Dialog edytora tekstu z eksportem
         self.txt_edytor_dok = ft.TextField(
             multiline=True,
             min_lines=14,
@@ -304,38 +313,50 @@ class ModulDocMixin:
         return getattr(e, "delta_x", 0.0), getattr(e, "delta_y", 0.0)
 
     def _aktualizuj_kadrowanie_dok(self):
-        w = self.SZEROKOSC_DOK_DOC
-        h = self.WYSOKOSC_DOK_DOC
+        w = float(self.SZEROKOSC_DOK_DOC)
+        h = float(self.WYSOKOSC_DOK_DOC)
+        min_rozmiar = 40.0
 
-        self.crop_doc_x1 = max(0.0, min(self.crop_doc_x1, w - self.UCHWYT_ROZMIAR_DOK_DOC))
-        self.crop_doc_y1 = max(0.0, min(self.crop_doc_y1, h - self.UCHWYT_ROZMIAR_DOK_DOC))
-        self.crop_doc_x2 = max(self.crop_doc_x1 + self.UCHWYT_ROZMIAR_DOK_DOC, min(self.crop_doc_x2, float(w)))
-        self.crop_doc_y2 = max(self.crop_doc_y1 + self.UCHWYT_ROZMIAR_DOK_DOC, min(self.crop_doc_y2, float(h)))
+        self.crop_doc_x1 = max(0.0, min(self.crop_doc_x1, w - min_rozmiar))
+        self.crop_doc_y1 = max(0.0, min(self.crop_doc_y1, h - min_rozmiar))
+        self.crop_doc_x2 = max(self.crop_doc_x1 + min_rozmiar, min(self.crop_doc_x2, w))
+        self.crop_doc_y2 = max(self.crop_doc_y1 + min_rozmiar, min(self.crop_doc_y2, h))
 
         x1, y1, x2, y2 = self.crop_doc_x1, self.crop_doc_y1, self.crop_doc_x2, self.crop_doc_y2
+        pol_uchwytu = self.UCHWYT_ROZMIAR_DOK_DOC / 2.0
 
+        self.maska_doc_gora.width = w
         self.maska_doc_gora.height = y1
-        self.maska_doc_dol.height = h - y2
+
+        self.maska_doc_dol.width = w
+        self.maska_doc_dol.height = max(0.0, h - y2)
+
         self.maska_doc_lewo.top = y1
-        self.maska_doc_lewo.height = y2 - y1
+        self.maska_doc_lewo.height = max(0.0, y2 - y1)
         self.maska_doc_lewo.width = x1
+
         self.maska_doc_prawo.top = y1
-        self.maska_doc_prawo.height = y2 - y1
-        self.maska_doc_prawo.width = w - x2
+        self.maska_doc_prawo.height = max(0.0, y2 - y1)
+        self.maska_doc_prawo.width = max(0.0, w - x2)
 
         self.strefa_srodka_dok.top = y1
         self.strefa_srodka_dok.left = x1
-        self.strefa_srodka_dok.width = x2 - x1
-        self.strefa_srodka_dok.height = y2 - y1
+        self.strefa_srodka_dok.width = max(0.0, x2 - x1)
+        self.strefa_srodka_dok.height = max(0.0, y2 - y1)
 
-        self.uchwyt_doc_lt.top = y1
-        self.uchwyt_doc_lt.left = x1
-        self.uchwyt_doc_rt.top = y1
-        self.uchwyt_doc_rt.left = x2 - self.UCHWYT_ROZMIAR_DOK_DOC
-        self.uchwyt_doc_lb.top = y2 - self.UCHWYT_ROZMIAR_DOK_DOC
-        self.uchwyt_doc_lb.left = x1
-        self.uchwyt_doc_rb.top = y2 - self.UCHWYT_ROZMIAR_DOK_DOC
-        self.uchwyt_doc_rb.left = x2 - self.UCHWYT_ROZMIAR_DOK_DOC
+        # Centrowanie uchwytów
+        self.uchwyt_doc_lt.left = max(0.0, x1 - pol_uchwytu)
+        self.uchwyt_doc_lt.top = max(0.0, y1 - pol_uchwytu)
+
+        self.uchwyt_doc_rt.left = min(w - self.UCHWYT_ROZMIAR_DOK_DOC, x2 - pol_uchwytu)
+        self.uchwyt_doc_rt.top = max(0.0, y1 - pol_uchwytu)
+
+        self.uchwyt_doc_lb.left = max(0.0, x1 - pol_uchwytu)
+        self.uchwyt_doc_lb.top = min(h - self.UCHWYT_ROZMIAR_DOK_DOC, y2 - pol_uchwytu)
+
+        self.uchwyt_doc_rb.left = min(w - self.UCHWYT_ROZMIAR_DOK_DOC, x2 - pol_uchwytu)
+        self.uchwyt_doc_rb.top = min(h - self.UCHWYT_ROZMIAR_DOK_DOC, y2 - pol_uchwytu)
+
         self.page.update()
 
     def _przesun_uchwyt_dok(self, ktory: str, dx: float, dy: float):
@@ -386,22 +407,21 @@ class ModulDocMixin:
         except Exception:
             w_orig, h_orig = 1000, 1400
 
-        # Blokada: Telefon ZAWSZE w pionie
         self._ustaw_orientacje_sync([ft.DeviceOrientation.PORTRAIT_UP])
 
-        max_w = 350.0
-        max_h = 540.0
+        max_w = self.MAX_SZEROKOSC_ROBOCZA_DOC
+        max_h = self.MAX_WYSOKOSC_ROBOCZA_DOC
 
         proporcja = w_orig / max(1, h_orig)
-        if proporcja >= (max_w / max_h):
-            w_ramki = max_w
-            h_ramki = round(max_w / proporcja)
-        else:
+        if (max_w / max_h) > proporcja:
             h_ramki = max_h
             w_ramki = round(max_h * proporcja)
+        else:
+            w_ramki = max_w
+            h_ramki = round(max_w / proporcja)
 
-        self.SZEROKOSC_DOK_DOC = max(180, int(w_ramki))
-        self.WYSOKOSC_DOK_DOC = max(180, int(h_ramki))
+        self.SZEROKOSC_DOK_DOC = max(140, int(w_ramki))
+        self.WYSOKOSC_DOK_DOC = max(140, int(h_ramki))
 
         self.ramka_kadrowania_dok.width = self.SZEROKOSC_DOK_DOC
         self.ramka_kadrowania_dok.height = self.WYSOKOSC_DOK_DOC
@@ -425,6 +445,16 @@ class ModulDocMixin:
             except Exception:
                 pass
 
+    def _napraw_orientacje_exif(self, sciezka: str) -> str:
+        try:
+            with Image.open(sciezka) as img:
+                img_poprawiony = ImageOps.exif_transpose(img)
+                if img_poprawiony:
+                    img_poprawiony.save(sciezka, quality=95)
+        except Exception:
+            pass
+        return sciezka
+
     def ustaw_stan_foto_dok(self, czy_ma: bool):
         self.kontener_podgladu_dok.visible = czy_ma
         self.btn_otworz_kadr_dok.visible = czy_ma
@@ -433,15 +463,23 @@ class ModulDocMixin:
         self.page.update()
 
     def ustaw_nowy_obraz_dok(self, sciezka: str):
-        self.zdjecie_dok["sciezka"] = sciezka
-        self.historia_dok = [(sciezka, None)]
+        nowa_sciezka = os.path.join(config.KATALOG_DANYCH, f"img_dok_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
+        try:
+            shutil.copyfile(sciezka, nowa_sciezka)
+        except Exception:
+            nowa_sciezka = sciezka
+
+        self._napraw_orientacje_exif(nowa_sciezka)
+
+        self.zdjecie_dok["sciezka"] = nowa_sciezka
+        self.historia_dok = [(nowa_sciezka, None)]
         self.aktywny_filtr_dok = None
         self._odswiez_styl_przyciskow_filtrow_dok()
         self.btn_doc_cofnij.disabled = True
 
         self.podglad_dok.src_base64 = None
-        self.podglad_dok.src = sciezka
-        self.img_pelny_podglad_dok.src = sciezka
+        self.podglad_dok.src = nowa_sciezka
+        self.img_pelny_podglad_dok.src = nowa_sciezka
 
         self.ustaw_stan_foto_dok(True)
         self.status_dok.value = "Zdjęcie gotowe. Kliknij w podgląd, aby dopasować kadr."
@@ -534,7 +572,7 @@ class ModulDocMixin:
         proc_prawo = ((self.SZEROKOSC_DOK_DOC - self.crop_doc_x2) / self.SZEROKOSC_DOK_DOC) * 100.0
         proc_dol = ((self.WYSOKOSC_DOK_DOC - self.crop_doc_y2) / self.WYSOKOSC_DOK_DOC) * 100.0
 
-        if proc_lewo == 0.0 and proc_gora == 0.0 and proc_prawo == 0.0 and proc_dol == 0.0:
+        if proc_lewo <= 0.5 and proc_gora <= 0.5 and proc_prawo <= 0.5 and proc_dol <= 0.5:
             return
 
         sciezka_akt = self.zdjecie_dok["sciezka"]
@@ -675,7 +713,7 @@ class ModulDocMixin:
 
             if uzywa_chmury:
                 model_nazwa = cfg.get("gemini_model", "gemini-2.5-flash")
-                url = "[https://generativelanguage.googleapis.com/v1beta/openai/chat/completions](https://generativelanguage.googleapis.com/v1beta/openai/chat/completions)"
+                url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 headers = {"Authorization": f"Bearer {cfg.get('gemini_api_key', '')}", "Content-Type": "application/json"}
                 payload = {
                     "model": model_nazwa,
@@ -702,13 +740,32 @@ class ModulDocMixin:
             self.ui.dopisz_log(f"🌐 Wysyłanie żądania do: {cel_logu}...")
             self.page.update()
 
+            max_prob = 4
+            opoznienie_poczatkowe = 2.0
+            odpowiedz = None
+            timeout_cfg = httpx.Timeout(10.0, read=300.0)
+
             start_siec = time.perf_counter()
-            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
-                res = await client.post(url, headers=headers, json=payload)
-                res.raise_for_status()
-                dane_odp = res.json()
+            async with httpx.AsyncClient(timeout=timeout_cfg, verify=True) as client:
+                for proba in range(max_prob):
+                    if proba > 0:
+                        self.ui.dopisz_log(f"Ponawianie zapytania (próba {proba + 1}/{max_prob})...", ft.Colors.AMBER)
+                    odpowiedz = await client.post(url, headers=headers, json=payload)
+
+                    if odpowiedz.status_code in [503, 429]:
+                        if proba < max_prob - 1:
+                            czas_oczekiwania = opoznienie_poczatkowe * (2 ** proba)
+                            self.status_dok.value = f"Serwer zajęty ({odpowiedz.status_code}). Ponawianie za {czas_oczekiwania:.1f}s..."
+                            self.status_dok.color = ft.Colors.AMBER_ACCENT
+                            self.page.update()
+                            await asyncio.sleep(czas_oczekiwania)
+                            continue
+
+                    odpowiedz.raise_for_status()
+                    break
 
             czas_siec = time.perf_counter() - start_siec
+            dane_odp = odpowiedz.json()
             wybor = dane_odp["choices"][0]
             surowy_tekst = wybor["message"]["content"].strip()
             powod_konca = wybor.get("finish_reason")
@@ -752,6 +809,25 @@ class ModulDocMixin:
             self.status_dok.color = ft.Colors.GREEN_ACCENT
             self.ui.bezpiecznie_otworz_dialog(self.dlg_wynik_dok)
 
+        except httpx.HTTPStatusError as http_err:
+            status = http_err.response.status_code
+            tresc = http_err.response.text[:350]
+            self.ui.dopisz_log(f"Błąd HTTP {status}: {tresc}", ft.Colors.RED)
+            if status in (401, 403) or "API_KEY_INVALID" in tresc:
+                self.status_dok.value = "Błąd autoryzacji API"
+                self.ui.pokaz_okno_bledu("🔑 Błąd autoryzacji", "Klucz API jest nieprawidłowy lub brak uprawnień. Sprawdź ustawienia.")
+            elif status == 429:
+                self.status_dok.value = "Limit zapytań wyczerpany"
+                self.ui.pokaz_okno_bledu("⏳ Limit zapytań wyczerpany", "Zbyt wiele zapytań w krótkim czasie. Odczekaj 30 sekund.")
+            elif status >= 500:
+                self.status_dok.value = "Serwer AI niedostępny"
+                self.ui.pokaz_okno_bledu("⏳ Serwer AI niedostępny", f"Serwer zwrócił kod {status}. Odczekaj chwilę i spróbuj ponownie.")
+            else:
+                self.status_dok.value = f"Błąd zapytania HTTP {status}"
+                self.ui.pokaz_okno_bledu("❌ Błąd zapytania HTTP", f"Status: {status}\n{tresc}")
+        except httpx.TimeoutException:
+            self.status_dok.value = "Limit czasu przekroczony"
+            self.ui.pokaz_okno_bledu("⏳ Limit czasu", "Model nie odpowiedział w wyznaczonym czasie.")
         except Exception as err:
             self.ui.dopisz_log(f"Błąd odczytu: {err}", ft.Colors.RED)
             self.status_dok.value = f"Błąd: {err}"

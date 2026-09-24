@@ -868,7 +868,9 @@ def wyczysc_pliki_robocze() -> int:
         "img_*.jpg", "foto_*.jpg", "crop_*.jpg", 
         "flt_*.jpg", "rot_*.jpg", "rot_dok_*.jpg", 
         "rot_skan_*.jpg", "img_dok_*.jpg", "img_skan_*.jpg",
-        "edi_*.txt", "*.edi", "dok_*.txt"
+        "edi_*.txt", "*.edi", "dok_*.txt",
+        "*.docx", "*.doc",
+        "*.xlsx", "*.xls"
     ]
     for wzorzec in wzorce:
         sciezka_wzorca = os.path.join(config.KATALOG_DANYCH, wzorzec)

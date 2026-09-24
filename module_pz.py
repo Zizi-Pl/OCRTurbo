@@ -900,7 +900,7 @@ class ModulPZMixin:
 
             if uzywa_chmury:
                 klucz = aktualny_konfig.get("gemini_api_key", "").strip()
-                pelny_url = "[https://generativelanguage.googleapis.com/v1beta/openai/chat/completions](https://generativelanguage.googleapis.com/v1beta/openai/chat/completions)"
+                pelny_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 naglowki = {
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {klucz}"
