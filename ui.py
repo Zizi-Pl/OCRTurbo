@@ -32,6 +32,7 @@ class UIManager:
 
         # Aparat
         self.cel_aparatu = {"modul": "pz"}
+        self.lampa_wlaczona = False
         self.kamera_obiektyw = fc.Camera(expand=True)
         self.page.on_view_pop = lambda e: asyncio.create_task(self.zamknij_pelny_ekran_aparatu())
 
@@ -157,6 +158,7 @@ class UIManager:
         return bool(self.page.web) or self.page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
 
     async def zamknij_pelny_ekran_aparatu(self, e=None):
+        self.lampa_wlaczona = False
         try:
             await self.kamera_obiektyw.dispose()
         except Exception:
@@ -165,6 +167,21 @@ class UIManager:
         if len(self.page.views) > 1:
             self.page.views.pop()
             self.page.update()
+
+    async def przelacz_latarke(self, e=None):
+        if not self.kamera_obiektyw:
+            return
+        try:
+            self.lampa_wlaczona = not self.lampa_wlaczona
+            nowy_tryb = fc.FlashMode.TORCH if self.lampa_wlaczona else fc.FlashMode.OFF
+            await self.kamera_obiektyw.set_flash_mode(nowy_tryb)
+
+            if hasattr(self, "btn_latarka"):
+                self.btn_latarka.icon = ft.Icons.FLASH_ON if self.lampa_wlaczona else ft.Icons.FLASH_OFF
+                self.btn_latarka.icon_color = ft.Colors.AMBER if self.lampa_wlaczona else ft.Colors.WHITE
+                self.page.update()
+        except Exception as err:
+            self.dopisz_log(f"Błąd przełączania latarki: {err}", ft.Colors.AMBER)
 
     async def klik_migawka(self, e=None):
         try:
@@ -201,6 +218,15 @@ class UIManager:
             return
 
         try:
+            self.lampa_wlaczona = False
+            self.btn_latarka = ft.IconButton(
+                icon=ft.Icons.FLASH_OFF,
+                icon_color=ft.Colors.WHITE,
+                bgcolor=ft.Colors.BLACK54,
+                tooltip="Włącz/wyłącz latarkę",
+                on_click=lambda ev: asyncio.create_task(self.przelacz_latarke(ev))
+            )
+
             widok_aparatu = ft.View(
                 route="/aparat",
                 controls=[
@@ -211,11 +237,14 @@ class UIManager:
                             expand=True
                         ),
                         ft.Container(
-                            content=ft.Button(
-                                "Anuluj",
-                                style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE),
-                                on_click=lambda ev: asyncio.create_task(self.zamknij_pelny_ekran_aparatu(ev))
-                            ),
+                            content=ft.Row([
+                                self.btn_latarka,
+                                ft.Button(
+                                    "Anuluj",
+                                    style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE),
+                                    on_click=lambda ev: asyncio.create_task(self.zamknij_pelny_ekran_aparatu(ev))
+                                )
+                            ], spacing=10),
                             top=40,
                             right=20
                         ),

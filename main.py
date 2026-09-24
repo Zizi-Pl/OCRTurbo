@@ -44,7 +44,8 @@ async def main(page: ft.Page):
     views_manager = ViewsManager(page, ui_manager, serwis_udostepniania, pickery)
 
     # Spięcie referencji zwrotnej z menedżerem widoków
-    ui_manager.views_manager = views_manager   
+    ui_manager.views_manager = views_manager
+    ui_manager.on_foto_captured = views_manager.przypisz_zrobione_foto   
 
     # Inicjalne odświeżenie etykiety bazy towarowej
     ui_manager.odswiez_status_bazy()
