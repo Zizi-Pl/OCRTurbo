@@ -41,7 +41,7 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
     def przypisz_zrobione_foto(self, sciezka: str, modul: str):
         if modul == "pz":
             self.ustaw_nowy_obraz_pz(sciezka)
-        elif modul == "dokument":
+        elif modul in ("dok", "dokument"):
             self.ustaw_nowy_obraz_dok(sciezka)
         elif modul == "skaner":
             self.ustaw_nowy_obraz_skan(sciezka)
@@ -109,10 +109,18 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
         self.widok_dokument.visible = (nazwa == "dokument")
         self.widok_skanera.visible = (nazwa == "skaner")
 
-        # Reset widoku PZ do stanu początkowego (pokazujemy formularz, ukrywamy pełny kadr)
+        # Reset widoków do stanu początkowego (pokazujemy formularz główny, ukrywamy pełny kadr)
         if hasattr(self, "kolumna_glowna_pz") and hasattr(self, "widok_kadrowania_pz"):
             self.kolumna_glowna_pz.visible = True
             self.widok_kadrowania_pz.visible = False
+
+        if hasattr(self, "kolumna_glowna_dok") and hasattr(self, "widok_kadrowania_dok"):
+            self.kolumna_glowna_dok.visible = True
+            self.widok_kadrowania_dok.visible = False
+
+        if hasattr(self, "kolumna_glowna_skan") and hasattr(self, "widok_kadrowania_skan"):
+            self.kolumna_glowna_skan.visible = True
+            self.widok_kadrowania_skan.visible = False
 
         if nazwa in ("skaner", "dokument"):
             self.page.scroll = None

@@ -43,12 +43,8 @@ async def main(page: ft.Page):
     # Powołanie menedżera widoków roboczych (Hub, PZ, Dokument 1:1, Skaner)
     views_manager = ViewsManager(page, ui_manager, serwis_udostepniania, pickery)
 
-    # KLUCZOWE: Spięcie referencji zwrotnej i callbacku zdjęcia z aparatu
-    ui_manager.views_manager = views_manager
-    if hasattr(views_manager, "obsluz_zrobione_foto"):
-        ui_manager.on_foto_captured = views_manager.obsluz_zrobione_foto
-    elif hasattr(views_manager, "ustaw_nowy_obraz"):
-        ui_manager.on_foto_captured = lambda sciezka, modul: views_manager.ustaw_nowy_obraz(sciezka)
+    # Spięcie referencji zwrotnej z menedżerem widoków
+    ui_manager.views_manager = views_manager   
 
     # Inicjalne odświeżenie etykiety bazy towarowej
     ui_manager.odswiez_status_bazy()

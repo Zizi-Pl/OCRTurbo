@@ -275,13 +275,6 @@ class ModulDocMixin:
 
         self.widok_dokument = self.widok_dok
 
-        self.txt_edytor_dok = ft.TextField(
-            multiline=True,
-            min_lines=14,
-            max_lines=22,
-            text_size=12,
-            expand=True
-        )
         # Dialog edytora tekstu z eksportem (dopasowany do szerokości ekranu)
         self.txt_edytor_dok = ft.TextField(
             multiline=True,
