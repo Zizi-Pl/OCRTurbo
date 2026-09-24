@@ -14,6 +14,10 @@ from thefuzz import process, fuzz
 
 import config
 
+# --- ŚCIEŻKI DO NOWYCH PLIKÓW STRUKTURY ---
+KARTOTEKA_FILE = os.path.join(config.KATALOG_DANYCH, "kartoteka_towarowa.json")
+ALIASY_FILE = os.path.join(config.KATALOG_DANYCH, "aliasy_ocr.json")
+
 # --- CACHE BAZY W PAMIĘCI RAM ---
 _CACHE_BAZY = {
     "sciezka": None,
@@ -91,53 +95,117 @@ def formatuj_liczbe(wartosc: float, min_miejsc: int, max_miejsc: int) -> str:
     return s
 
 
-# --- ZARZĄDZANIE MAPOWANIAMI (WŁASNE KODY) ---
+def przelicz_brutto_na_netto(cena_brutto: float, vat_proc: int) -> float:
+    """Wylicza cenę netto ze stawki brutto i procentu VAT."""
+    if cena_brutto is None or cena_brutto <= 0:
+        return 0.0
+    mnoznik = 1.0 + (float(vat_proc) / 100.0)
+    return round(cena_brutto / mnoznik, 4)
+
+
+# --- OBSŁUGA KODÓW WAGOWYCH I KLASYFIKACJI STATYSTYCZNEJ (PKWiU/CN) ---
+def czy_to_pkwiu_lub_cn(kod_raw: str) -> bool:
+    """Wykrywa, czy odczytany ciąg jest symbolem PKWiU lub CN zamiast unikalnego kodu artykułu."""
+    if not kod_raw:
+        return False
+    s = str(kod_raw).strip()
+    
+    # Format z kropkami, np. 10.13.14.0, 10.11.12.0
+    if re.fullmatch(r"\d{2}\.\d{2}\.\d{2}(\.\d+)?", s):
+        return True
+        
+    # Kody PKWiU bez kropek (np. 1013140, 1013150, 1011120, 1092100)
+    czyste_cyfry = re.sub(r"[^\d]", "", s)
+    if len(czyste_cyfry) in (7, 8):
+        if czyste_cyfry.startswith(("1011", "1012", "1013", "1020", "1030", "1040", "1050", "1071", "1089", "1092")):
+            return True
+        if czyste_cyfry.startswith(("0201", "0202", "0203", "1601", "1602")):
+            return True
+            
+    return False
+
+
+def normalizuj_kod_porownawczy(kod_raw: str) -> str:
+    """Zwraca zunifikowany kod do porównań (usuwa maski ?, obcina spacje)."""
+    if not kod_raw:
+        return ""
+    s = str(kod_raw).strip()
+    if "?" in s:
+        s = s.split("?")[0].strip()
+    return s
+
+
+def wyodrebnij_kod_wazony(kod_raw: str) -> str:
+    """Wycina prefiks 6-cyfrowy lub indeks wewnętrzny z kodu wagowego (np. 294220 lub 4220)."""
+    if not kod_raw:
+        return ""
+    czysty = re.sub(r"[^\dA-Za-z?]", "", str(kod_raw).strip())
+    if len(czysty) >= 6 and czysty[:2] in ("28", "29"):
+        return czysty[:6]
+    return ""
+
+
+def czy_poprawny_ean(kod_raw: str) -> bool:
+    if not kod_raw:
+        return False
+    s = str(kod_raw).strip()
+    if czy_to_pkwiu_lub_cn(s):
+        return False
+    return s.isdigit() and len(s) in (8, 13)
+
+
+# --- ZARZĄDZANIE RELACJAMI / ALIASAMI OCR (WŁASNE POWIĄZANIA) ---
 def wczytaj_baze_mapowan() -> dict:
-    if os.path.exists(config.MAPA_FILE):
+    sciezka = ALIASY_FILE if os.path.exists(ALIASY_FILE) else config.MAPA_FILE
+    if os.path.exists(sciezka):
         try:
-            with open(config.MAPA_FILE, "r", encoding="utf-8-sig") as f:
+            with open(sciezka, "r", encoding="utf-8-sig") as f:
                 dane = json.load(f)
-            return dane if isinstance(dane, dict) else {}
+            if not isinstance(dane, dict):
+                return {}
+            wynik = {}
+            for k, v in dane.items():
+                nazwa_faktura = str(k).strip().upper()
+                if isinstance(v, dict):
+                    wynik[nazwa_faktura] = {
+                        "kod": str(v.get("kod", "")).strip(),
+                        "nazwa_baza": str(v.get("nazwa_baza", "")).strip(),
+                        "kod_dostawcy": str(v.get("kod_dostawcy", "")).strip()
+                    }
+                else:
+                    wynik[nazwa_faktura] = {
+                        "kod": str(v).strip(),
+                        "nazwa_baza": "",
+                        "kod_dostawcy": ""
+                    }
+            return wynik
         except Exception:
             return {}
     return {}
 
 
 def zapisz_baze_mapowan(mapa: dict) -> None:
-    tymczasowy = config.MAPA_FILE + ".tmp"
+    tymczasowy = ALIASY_FILE + ".tmp"
     try:
         with open(tymczasowy, "w", encoding="utf-8") as f:
             json.dump(mapa, f, indent=4, ensure_ascii=False)
-        os.replace(tymczasowy, config.MAPA_FILE)
+        os.replace(tymczasowy, ALIASY_FILE)
+        with open(config.MAPA_FILE, "w", encoding="utf-8") as f:
+            json.dump(mapa, f, indent=4, ensure_ascii=False)
     except Exception as e:
         print(f"Błąd zapisu mapowań: {e}")
 
 
-def wczytaj_plik_mapowan_z_walidacja(sciezka: str) -> dict:
-    with open(sciezka, "r", encoding="utf-8-sig") as f:
-        dane = json.load(f)
-    if not isinstance(dane, dict):
-        raise ValueError('Plik JSON musi zawierać słownik w postaci {"NAZWA": "KOD"}.')
-    wynik = {}
-    for k, v in dane.items():
-        nazwa = str(k).strip().upper()
-        kod = str(v).strip()
-        if nazwa and kod:
-            wynik[nazwa] = kod
-    if not wynik:
-        raise ValueError("Plik nie zawiera żadnych poprawnych reguł.")
-    return wynik
-
-
-def _klucz_reguly(nazwa) -> str:
-    return usun_diakrytyki(normalizuj_nazwe(str(nazwa)))
-
-
-def dodaj_regule(mapa: dict, nazwa: str, kod: str) -> None:
+def dodaj_regule(mapa: dict, nazwa: str, kod: str, nazwa_baza: str = "", kod_dostawcy: str = "") -> None:
     klucz = _klucz_reguly(nazwa)
-    for k in [k for k in mapa if _klucz_reguly(k) == klucz]:
+    do_usuniecia = [k for k in mapa if _klucz_reguly(k) == klucz]
+    for k in do_usuniecia:
         del mapa[k]
-    mapa[nazwa] = kod
+    mapa[nazwa.strip().upper()] = {
+        "kod": str(kod).strip(),
+        "nazwa_baza": str(nazwa_baza).strip(),
+        "kod_dostawcy": str(kod_dostawcy).strip()
+    }
 
 
 def usun_regule(mapa: dict, nazwa: str) -> bool:
@@ -148,7 +216,33 @@ def usun_regule(mapa: dict, nazwa: str) -> bool:
     return bool(do_usuniecia)
 
 
-# --- BAZA TOWAROWA PC-MARKET ---
+def wczytaj_plik_mapowan_z_walidacja(sciezka: str) -> dict:
+    with open(sciezka, "r", encoding="utf-8-sig") as f:
+        dane = json.load(f)
+    if not isinstance(dane, dict):
+        raise ValueError('Plik JSON musi zawierać słownik powiązań.')
+    wynik = {}
+    for k, v in dane.items():
+        wz = str(k).strip().upper()
+        if isinstance(v, dict):
+            kd = str(v.get("kod", "")).strip()
+            nb = str(v.get("nazwa_baza", "")).strip()
+            cn = str(v.get("kod_dostawcy", "")).strip()
+        else:
+            kd = str(v).strip()
+            nb, cn = "", ""
+        if wz and kd:
+            wynik[wz] = {"kod": kd, "nazwa_baza": nb, "kod_dostawcy": cn}
+    if not wynik:
+        raise ValueError("Plik nie zawiera żadnych poprawnych reguł.")
+    return wynik
+
+
+def _klucz_reguly(nazwa) -> str:
+    return usun_diakrytyki(normalizuj_nazwe(str(nazwa)))
+
+
+# --- KARTOTEKA TOWAROWA I PARSER EXCELA / TXT Z PC-MARKET ---
 def normalizuj_nazwe(tekst: str) -> str:
     if not tekst:
         return ""
@@ -157,11 +251,112 @@ def normalizuj_nazwe(tekst: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def importuj_baze_z_excela(sciezka_xlsx: str) -> tuple[list[dict], int, int]:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(sciezka_xlsx, data_only=True, read_only=True)
+    sheet_name = "Arkusz 2" if "Arkusz 2" in wb.sheetnames else wb.sheetnames[0]
+    ws = wb[sheet_name]
+
+    header = []
+    towary_z_paczki = []
+
+    for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+        if row_idx == 0:
+            continue
+        if not header and any(c and "Nazwa" in str(c) for c in row):
+            header = [str(c).strip() if c is not None else "" for c in row]
+            continue
+        if not header:
+            continue
+
+        row_dict = dict(zip(header, row))
+        nazwa = str(row_dict.get("Nazwa") or "").strip().upper()
+        kod = str(row_dict.get("Kod") or "").strip()
+        if not nazwa or not kod or nazwa == "NAZWA":
+            continue
+
+        jm = str(row_dict.get("Jm") or "kg").strip().lower()
+        vat = str(row_dict.get("VAT") or "5").strip().replace("%", "")
+        cena_ew = parsuj_kwote(row_dict.get("Cena ew."))
+        asortyment = str(row_dict.get("Asortyment") or "").strip()
+
+        kody_kreskowe = []
+        kod_wew = kod
+        kod_czysty = normalizuj_kod_porownawczy(kod)
+
+        if "?" in kod or kod.startswith("29") or kod.startswith("28"):
+            kody_kreskowe.append(kod)
+            kod_wew = kod_czysty[2:] if len(kod_czysty) >= 6 else kod_czysty
+        elif len(kod) == 13 and kod.isdigit():
+            kody_kreskowe.append(kod)
+
+        towary_z_paczki.append({
+            "nazwa": nazwa,
+            "kod": kod,
+            "kod_wew": kod_wew,
+            "kody_kreskowe": kody_kreskowe,
+            "jm": jm,
+            "vat": vat,
+            "cena_ew": cena_ew,
+            "asortyment": asortyment
+        })
+
+    wb.close()
+
+    kartoteka_mapa = {}
+    if os.path.exists(KARTOTEKA_FILE):
+        try:
+            with open(KARTOTEKA_FILE, "r", encoding="utf-8") as f:
+                istniejace = json.load(f)
+                if isinstance(istniejace, list):
+                    for t in istniejace:
+                        k_norm = normalizuj_kod_porownawczy(t.get("kod", ""))
+                        if k_norm:
+                            kartoteka_mapa[k_norm] = t
+        except Exception:
+            kartoteka_mapa = {}
+
+    dopisane = 0
+    zaktualizowane = 0
+
+    for t_nowy in towary_z_paczki:
+        k_norm = normalizuj_kod_porownawczy(t_nowy.get("kod", ""))
+        if not k_norm:
+            continue
+
+        if k_norm in kartoteka_mapa:
+            kartoteka_mapa[k_norm].update(t_nowy)
+            zaktualizowane += 1
+        else:
+            kartoteka_mapa[k_norm] = t_nowy
+            dopisane += 1
+
+    pelna_kartoteka = list(kartoteka_mapa.values())
+
+    if pelna_kartoteka:
+        tymczasowy = KARTOTEKA_FILE + ".tmp"
+        with open(tymczasowy, "w", encoding="utf-8") as f:
+            json.dump(pelna_kartoteka, f, indent=2, ensure_ascii=False)
+        os.replace(tymczasowy, KARTOTEKA_FILE)
+
+        with _BLOKADA_CACHE:
+            _CACHE_BAZY["sciezka"] = KARTOTEKA_FILE
+            try:
+                _CACHE_BAZY["mtime"] = os.path.getmtime(KARTOTEKA_FILE)
+            except OSError:
+                _CACHE_BAZY["mtime"] = 0.0
+            _CACHE_BAZY["towary"] = pelna_kartoteka
+            _CACHE_BAZY["indeks"] = zbuduj_indeks_nazw(pelna_kartoteka)
+
+    return pelna_kartoteka, dopisane, zaktualizowane
+
+
 def zbuduj_indeks_nazw(baza: list[dict]) -> dict:
     mapa_nazw = {}
     for t in baza:
-        kod = t["kod_wew"]
-        surowa_nazwa = t["nazwa"]
+        kod = t.get("kod") or t.get("kod_wew")
+        surowa_nazwa = t.get("nazwa", "")
         czesci = surowa_nazwa.split("/")
         trzon = normalizuj_nazwe(czesci[0])
 
@@ -197,8 +392,32 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
         konf = config.wczytaj_konfiguracje()
         sciezka = config.pobierz_aktualna_sciezke_bazy(konf)
 
-    if not os.path.exists(sciezka):
+    if (not sciezka or not os.path.exists(sciezka)) and os.path.exists(KARTOTEKA_FILE):
+        sciezka = KARTOTEKA_FILE
+
+    if not sciezka or not os.path.exists(sciezka):
         return []
+
+    if sciezka.lower().endswith(".xlsx"):
+        towary, _, _ = importuj_baze_z_excela(sciezka)
+        return towary
+
+    if sciezka.lower().endswith(".json"):
+        with _BLOKADA_CACHE:
+            try:
+                mtime = os.path.getmtime(sciezka)
+                if _CACHE_BAZY["sciezka"] == sciezka and _CACHE_BAZY["mtime"] == mtime:
+                    return _CACHE_BAZY["towary"]
+                with open(sciezka, "r", encoding="utf-8-sig") as f:
+                    towary = json.load(f)
+                _CACHE_BAZY["sciezka"] = sciezka
+                _CACHE_BAZY["mtime"] = mtime
+                _CACHE_BAZY["towary"] = towary
+                _CACHE_BAZY["indeks"] = zbuduj_indeks_nazw(towary)
+                return towary
+            except Exception as e:
+                print(f"Błąd odczytu kartoteki JSON: {e}")
+                return []
 
     with _BLOKADA_CACHE:
         try:
@@ -208,7 +427,7 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
         if _CACHE_BAZY["sciezka"] == sciezka and _CACHE_BAZY["mtime"] == mtime:
             return _CACHE_BAZY["towary"]
 
-        towary_dict = {}
+        towary = []
         kodowania = ["utf-8-sig", "windows-1250", "cp852"]
         linie = None
 
@@ -228,11 +447,18 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
                         nazwa = kolumny[0].strip().upper()
                         kod = kolumny[2].strip().lstrip("'")
                         if nazwa and kod and nazwa != "NAZWA":
-                            towary_dict[nazwa] = kod
+                            kody_kreskowe = [kod] if len(kod) >= 8 or "?" in kod else []
+                            towary.append({
+                                "nazwa": nazwa,
+                                "kod": kod,
+                                "kod_wew": kod.split("?")[0].replace("29", "") if "?" in kod else kod,
+                                "kody_kreskowe": kody_kreskowe,
+                                "jm": "kg",
+                                "vat": "5"
+                            })
             except Exception as e:
                 print(f"Błąd parsowania bazy PC-Market: {e}")
 
-        towary = [{"nazwa": k, "kod_wew": v} for k, v in towary_dict.items()]
         _CACHE_BAZY["sciezka"] = sciezka
         _CACHE_BAZY["mtime"] = mtime
         _CACHE_BAZY["towary"] = towary
@@ -240,77 +466,83 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
         return towary
 
 
-def wyodrebnij_kod_wazony(kod_raw: str) -> str:
-    """Wycina 4 cyfry indeksu PC-Market z kodu wagowego (np. 29XXXX... lub 28XXXX...)."""
-    if not kod_raw:
-        return ""
-    czysty = re.sub(r"[^\dA-Za-z?]", "", str(kod_raw).strip())
-    if len(czysty) >= 6 and czysty[:2] in ("28", "29"):
-        kandydat = czysty[2:6]
-        if kandydat.isdigit():
-            return kandydat
-    return ""
-
-
-def czy_poprawny_ean(kod_raw: str) -> bool:
-    """Sprawdza, czy kod jest poprawnym EAN-13 lub EAN-8 (same cyfry, bez znaków zapytania)."""
-    if not kod_raw:
-        return False
-    s = str(kod_raw).strip()
-    return s.isdigit() and len(s) in (8, 13)
-
-
+# --- ALGORYTM DOPASOWANIA TOWARU (FILOZOFIA PC-MARKET) ---
 def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict], uzywaj_bazy: bool,
                          mapowania: dict = None, indeks: dict = None,
                          indeks_bez_og: dict = None) -> tuple[str, str, str]:
     kod_faktura_clean = str(kod_faktura or "").strip()
+    
+    # 0. Neutralizacja symboli PKWiU / CN – wymuszamy szukanie po nazwie
+    if czy_to_pkwiu_lub_cn(kod_faktura_clean):
+        kod_faktura_clean = ""
+
     nazwa_faktura_clean = normalizuj_nazwe(nazwa_faktura)
     nazwa_bez_og = usun_diakrytyki(nazwa_faktura_clean)
 
-    # 1. Bezwzględne wycięcie 4 cyfr z kodów wagowych (usuwa znaki ?)
+    # 1. Prawdziwy kod wagowy odczytany z dokumentu (29xxxx / 28xxxx)
     kod_z_wagi = wyodrebnij_kod_wazony(kod_faktura_clean)
     if kod_z_wagi:
+        if baza:
+            for t in baza:
+                if str(t.get("kod", "")).startswith(kod_z_wagi):
+                    return str(t.get("kod")), kod_faktura_clean, "WAGA_KOD"
         return kod_z_wagi, kod_faktura_clean, "WAGA_KOD"
 
-    # Jeśli dopasowanie do bazy jest wyłączone w opcjach
     if not uzywaj_bazy:
         kod_do_zwrotu = "" if "?" in kod_faktura_clean else kod_faktura_clean
         return kod_do_zwrotu, kod_faktura_clean, "ORYGINAL"
 
-    # 2. Własne reguły synonimów z pliku JSON (po nazwie z faktury)
+    # 2. Własne reguły OCR / aliasy (sprawdzamy słownik powiązań)
     if mapowania is None:
         mapowania = wczytaj_baze_mapowan()
-    for nazwa_reguly, kod_reguly in mapowania.items():
-        if _klucz_reguly(nazwa_reguly) == nazwa_bez_og:
-            return str(kod_reguly), kod_faktura_clean, "REGULA"
 
-    # 3. Dopasowanie po nazwie w bazie PC-Market (dokładne i rozmyte)
+    # Sprawdzanie po unikalnym kodzie dostawcy (tylko gdy kod nie był PKWiU)
+    if kod_faktura_clean:
+        for reg_nazwa, reg_dane in mapowania.items():
+            if isinstance(reg_dane, dict) and reg_dane.get("kod_dostawcy") == kod_faktura_clean:
+                return str(reg_dane.get("kod")), kod_faktura_clean, "REGULA_KOD_DOSTAWCY"
+
+    # Sprawdzanie po nazwie z faktury w regułach
+    for reg_nazwa, reg_dane in mapowania.items():
+        if _klucz_reguly(reg_nazwa) == nazwa_bez_og:
+            kod_wskazany = reg_dane.get("kod") if isinstance(reg_dane, dict) else reg_dane
+            return str(kod_wskazany), kod_faktura_clean, "REGULA"
+
+    # 3. Dopasowanie po nazwie w bazie PC-Market
     if baza:
         if indeks_bez_og is None:
             mapa_nazw = indeks if indeks is not None else zbuduj_indeks_nazw(baza)
             indeks_bez_og = zbuduj_indeks_bez_diakrytykow(mapa_nazw)
 
+        # A. Dokładne dopasowanie pełnej nazwy
         if nazwa_bez_og in indeks_bez_og:
-            return indeks_bez_og[nazwa_bez_og], kod_faktura_clean, "DOKLADNE"
+            return str(indeks_bez_og[nazwa_bez_og]), kod_faktura_clean, "DOKLADNE"
 
+        # B. Dopasowanie po odcięciu producenta w ukośnikach, np. /GAIK/, /SWOJSCY/
+        nazwa_bez_producenta = re.sub(r"/.*?/", "", nazwa_faktura_clean).strip()
+        nazwa_czysta_og = usun_diakrytyki(normalizuj_nazwe(nazwa_bez_producenta))
+        if nazwa_czysta_og in indeks_bez_og:
+            return str(indeks_bez_og[nazwa_czysta_og]), kod_faktura_clean, "DOKLADNE_BEZ_PROD"
+
+        # C. Dopasowanie rozmyte (Fuzzy matching)
         if nazwa_bez_og and indeks_bez_og:
+            szukana_fraza = nazwa_czysta_og if len(nazwa_czysta_og) >= 4 else nazwa_bez_og
             wynik = process.extractOne(
-                nazwa_bez_og,
+                szukana_fraza,
                 list(indeks_bez_og.keys()),
                 scorer=fuzz.token_sort_ratio
             )
             if wynik and wynik[1] >= PROG_ROZMYTY:
-                return indeks_bez_og[wynik[0]], kod_faktura_clean, "ROZMYTE"
+                return str(indeks_bez_og[wynik[0]]), kod_faktura_clean, "ROZMYTE"
 
-    # 4. Sprawdzamy, czy kod z faktury to poprawny EAN towaru paczkowanego
+    # 4. Prawdziwy kod kreskowy EAN towaru paczkowanego
     if czy_poprawny_ean(kod_faktura_clean):
         return kod_faktura_clean, kod_faktura_clean, "EAN"
 
-    # 5. Indeks dostawcy / kod CN bez znaków zapytania
+    # 5. Prawdziwy indeks artykułu dostawcy
     if kod_faktura_clean and "?" not in kod_faktura_clean:
         return kod_faktura_clean, kod_faktura_clean, "INDEKS_DOSTAWCY"
 
-    # Brak dopasowania lub kod z błędami/znakami zapytania
     return "", kod_faktura_clean, "BRAK"
 
 
@@ -329,6 +561,12 @@ def dopasuj_wszystkie_pozycje_w_tle(dane: dict, uzywa_bazy: bool, sciezka_bazy: 
     for poz in dane.get("pozycje", []):
         nazwa = str(poz.get("nazwa", "")).strip().upper()
         kod_faktura = str(poz.get("kod", "")).strip()
+        
+        # Jeśli model wstawił PKWiU w polu kod, neutralizujemy go
+        if czy_to_pkwiu_lub_cn(kod_faktura):
+            kod_faktura = ""
+            poz["kod"] = ""
+
         kod_dop, _, pewnosc = dopasuj_towar_z_bazy(
             nazwa, kod_faktura, baza, uzywa_bazy,
             mapowania=mapowania, indeks=indeks, indeks_bez_og=indeks_bez_og
@@ -403,7 +641,6 @@ def kompresuj_do_base64(sciezka_pliku: str, rozdzielczosc: int = 1800) -> str:
 
 
 def obroc_plik_graficzny(sciezka_zrodlowa: str, kat: int, prefiks: str = "rot") -> str:
-    """Obraca obraz, zapisuje nową wersję i usuwa poprzedni plik."""
     with Image.open(sciezka_zrodlowa) as img:
         img = ImageOps.exif_transpose(img)
         obrocony = img.rotate(kat, expand=True)
@@ -489,14 +726,29 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
     for p in _l(surowe_dane.get("p", surowe_dane.get("pozycje"))):
         if not isinstance(p, dict):
             continue
+        
+        vat_tekst = _t(p.get("v", p.get("vat")), "5")
+        vat_num = parsuj_vat(vat_tekst) or 5
+        ilosc_num = parsuj_liczbe(p.get("i", p.get("ilosc"))) or 0.0
+
+        cena_netto_str = _t(p.get("c", p.get("cena_netto")))
+        wartosc_netto_str = _t(p.get("w", p.get("wartosc_netto")))
+
+        if not cena_netto_str and p.get("cena_brutto"):
+            c_brutto = parsuj_kwote(p.get("cena_brutto"))
+            c_netto = przelicz_brutto_na_netto(c_brutto, vat_num)
+            cena_netto_str = f"{c_netto:.4f}"
+            if not wartosc_netto_str:
+                wartosc_netto_str = f"{c_netto * ilosc_num:.2f}"
+
         pozycje.append({
             "nazwa": _t(p.get("n", p.get("nazwa")), "POZYCJA BEZ NAZWY"),
             "kod": _t(p.get("k", p.get("kod"))),
-            "vat": _t(p.get("v", p.get("vat"))),
+            "vat": str(vat_num),
             "jm": _t(p.get("j", p.get("jm")), "kg"),
-            "ilosc": _t(p.get("i", p.get("ilosc"))),
-            "cena_netto": _t(p.get("c", p.get("cena_netto"))),
-            "wartosc_netto": _t(p.get("w", p.get("wartosc_netto"))),
+            "ilosc": str(ilosc_num) if ilosc_num > 0 else _t(p.get("i", p.get("ilosc"))),
+            "cena_netto": cena_netto_str,
+            "wartosc_netto": wartosc_netto_str,
         })
 
     if not pozycje:
@@ -583,12 +835,15 @@ def generuj_tekst_edi(dane: dict) -> str:
 
     for poz in pozycje:
         nazwa = str(poz.get("oryg_nazwa") or poz.get("nazwa") or "").strip().upper()
-        
-        # Pobieramy kod i bezwzględnie czyścimy znaki zapytania
         kod_glowny = str(poz.get("kod_dopasowany") or poz.get("kod") or "").strip()
-        if "?" in kod_glowny:
-            kod_wazony = wyodrebnij_kod_wazony(kod_glowny)
-            kod_glowny = kod_wazony if kod_wazony else ""
+
+        if kod_glowny.startswith(("28", "29")):
+            if "?" in kod_glowny:
+                prefiks = kod_glowny.split("?")[0].strip()
+                if len(prefiks) == 6:
+                    kod_glowny = f"{prefiks}???????"
+            elif len(kod_glowny) == 6 and kod_glowny.isdigit():
+                kod_glowny = f"{kod_glowny}???????"
 
         vat_val = parsuj_vat(poz.get("vat"))
         vat = str(vat_val if vat_val is not None else 5)
@@ -607,7 +862,6 @@ def generuj_tekst_edi(dane: dict) -> str:
 
 
 def wyczysc_pliki_robocze() -> int:
-    """Usuwa wszystkie tymczasowe zdjęcia i pliki robocze z katalogu."""
     import glob
     usuniete = 0
     wzorce = [
