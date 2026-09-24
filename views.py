@@ -58,21 +58,86 @@ class ViewsManager:
         elif modul == "skaner":
             self.ustaw_nowy_obraz_skan(sciezka)
 
-    # =========================================================================
-    # 1. MODUŁ I: FAKTURA / PZ (DLA PC-MARKET)
-    # =========================================================================
+# =========================================================================
+# 1. MODUŁ I: FAKTURA / PZ (Z KADROWANIEM, PODGLADEM I ZACHOWANIEM STANU)
+# =========================================================================
     def _inicjalizuj_modul_pz(self):
+        self.SZEROKOSC_DOK_PZ = 320
+        self.WYSOKOSC_DOK_PZ = 280
+        self.UCHWYT_ROZMIAR_DOK_PZ = 44
+
+        # Współrzędne ramki kadrowania dla PZ
+        self.crop_pz_x1 = 0.0
+        self.crop_pz_y1 = 0.0
+        self.crop_pz_x2 = float(self.SZEROKOSC_DOK_PZ)
+        self.crop_pz_y2 = float(self.WYSOKOSC_DOK_PZ)
+        self.kadr_pz_zmieniony = False
+
         self.podglad_obrazu_pz = ft.Image(
             src=config.PUSTY_OBRAZ,
-            fit="contain",
-            height=240,
-            border_radius=8
+            fit="fill",
+            width=self.SZEROKOSC_DOK_PZ,
+            height=self.WYSOKOSC_DOK_PZ
         )
 
+        # Maski przyciemniające do kadrowania PZ
+        self.maska_pz_gora = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, left=0, width=self.SZEROKOSC_DOK_PZ, height=0)
+        self.maska_pz_dol = ft.Container(bgcolor=ft.Colors.BLACK54, bottom=0, left=0, width=self.SZEROKOSC_DOK_PZ, height=0)
+        self.maska_pz_lewo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, left=0, width=0)
+        self.maska_pz_prawo = ft.Container(bgcolor=ft.Colors.BLACK54, top=0, bottom=0, right=0, width=0)
+
+        # Środek ramki – przesuwanie całego kadru PZ
+        self.strefa_srodka_pz = ft.GestureDetector(
+            content=ft.Container(
+                border=ft.Border.all(2.0, ft.Colors.BLUE_ACCENT),
+                bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.BLUE_ACCENT)
+            ),
+            drag_interval=10,
+            on_pan_update=lambda e: self._przesun_caly_kadr_pz(*self._pobierz_deltas(e)),
+            top=0, left=0, width=self.SZEROKOSC_DOK_PZ, height=self.WYSOKOSC_DOK_PZ
+        )
+
+        def stworz_uchwyt_pz():
+            return ft.Container(
+                alignment=ft.Alignment(0, 0),
+                content=ft.Container(
+                    width=26, height=26,
+                    bgcolor=ft.Colors.BLUE_ACCENT,
+                    border_radius=13,
+                    border=ft.Border.all(2.5, ft.Colors.WHITE)
+                ),
+                width=self.UCHWYT_ROZMIAR_DOK_PZ,
+                height=self.UCHWYT_ROZMIAR_DOK_PZ
+            )
+
+        self.uchwyt_pz_lt = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("lt", *self._pobierz_deltas(e)), top=0, left=0)
+        self.uchwyt_pz_rt = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("rt", *self._pobierz_deltas(e)), top=0, left=self.SZEROKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ)
+        self.uchwyt_pz_lb = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("lb", *self._pobierz_deltas(e)), top=self.WYSOKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ, left=0)
+        self.uchwyt_pz_rb = ft.GestureDetector(content=stworz_uchwyt_pz(), drag_interval=10, on_pan_update=lambda e: self._przesun_uchwyt_pz("rb", *self._pobierz_deltas(e)), top=self.WYSOKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ, left=self.SZEROKOSC_DOK_PZ - self.UCHWYT_ROZMIAR_DOK_PZ)
+
+        self.ramka_kadrowania_pz = ft.Container(
+            content=ft.Stack([
+                self.podglad_obrazu_pz,
+                self.maska_pz_gora, self.maska_pz_dol, self.maska_pz_lewo, self.maska_pz_prawo,
+                self.strefa_srodka_pz,
+                self.uchwyt_pz_lt, self.uchwyt_pz_rt, self.uchwyt_pz_lb, self.uchwyt_pz_rb
+            ]),
+            width=self.SZEROKOSC_DOK_PZ,
+            height=self.WYSOKOSC_DOK_PZ,
+            alignment=ft.Alignment(0, 0),
+            visible=False
+        )
+
+        # TUTAJ DODANO PRZYCISK FULLSCREEN (IKONĘ LUPY/PEŁNEGO EKRANU)
         self.wiersz_obrotu_pz = ft.Row([
             ft.Button("Obróć w lewo (90°)", icon=ft.Icons.ROTATE_LEFT, on_click=lambda e: asyncio.create_task(self.obroc_obraz_pz(90)), expand=True),
+            ft.IconButton(
+                icon=ft.Icons.FULLSCREEN, icon_color=ft.Colors.BLUE_ACCENT, icon_size=26,
+                tooltip="Pełny podgląd zaznaczenia PZ",
+                on_click=lambda e: asyncio.create_task(self.pokaz_pelny_podglad_pz(e))
+            ),
             ft.Button("Obróć w prawo (90°)", icon=ft.Icons.ROTATE_RIGHT, on_click=lambda e: asyncio.create_task(self.obroc_obraz_pz(-90)), expand=True)
-        ], spacing=10, visible=False)
+        ], spacing=6, visible=False, alignment=ft.MainAxisAlignment.CENTER)
 
         self.btn_akcja_analiza_pz = ft.Button(
             content=ft.Row([ft.Icon(ft.Icons.PLAY_ARROW), ft.Text("Rozpocznij analizę PZ")], alignment=ft.MainAxisAlignment.CENTER),
@@ -157,6 +222,22 @@ class ViewsManager:
             ]
         )
 
+        # Dialog pełnego podglądu zdjęcia PZ w wysokiej rozdzielczości
+        self.img_pelny_podglad_pz = ft.Image(src=config.PUSTY_OBRAZ, fit="contain", expand=True)
+        self.dlg_pelny_podglad_pz = ft.AlertDialog(
+            modal=True,
+            inset_padding=ft.Padding(4, 10, 4, 10),
+            content=ft.Container(
+                content=self.img_pelny_podglad_pz,
+                alignment=ft.Alignment(0, 0),
+                width=600,
+                height=800
+            ),
+            actions=[
+                ft.Button("Zamknij podgląd", icon=ft.Icons.CLOSE, on_click=lambda e: self.page.pop_dialog())
+            ]
+        )
+
         btn_wyczysc_katalog = ft.Button(
             content=ft.Row([ft.Icon(ft.Icons.CLEANING_SERVICES, size=18), ft.Text("Wyczyść katalog tymczasowy", size=12)], alignment=ft.MainAxisAlignment.CENTER),
             style=ft.ButtonStyle(bgcolor=ft.Colors.RED_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
@@ -172,15 +253,91 @@ class ViewsManager:
             self.btn_akcja_analiza_pz,
             self.btn_wroc_weryfikacja_pz,
             self.btn_udostepnij_pz,
-            self.podglad_obrazu_pz,
+            self.ramka_kadrowania_pz,
             self.wiersz_obrotu_pz,
             self.btn_usun_zdjecie_pz,
             ft.Divider(height=16, color=ft.Colors.GREY_800),
             ft.Row([btn_wyczysc_katalog])
         ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10, visible=False)
 
+    def _aktualizuj_kadrowanie_pz(self):
+        w = self.SZEROKOSC_DOK_PZ
+        h = self.WYSOKOSC_DOK_PZ
+
+        self.crop_pz_x1 = max(0.0, min(self.crop_pz_x1, w - self.UCHWYT_ROZMIAR_DOK_PZ))
+        self.crop_pz_y1 = max(0.0, min(self.crop_pz_y1, h - self.UCHWYT_ROZMIAR_DOK_PZ))
+        self.crop_pz_x2 = max(self.crop_pz_x1 + self.UCHWYT_ROZMIAR_DOK_PZ, min(self.crop_pz_x2, float(w)))
+        self.crop_pz_y2 = max(self.crop_pz_y1 + self.UCHWYT_ROZMIAR_DOK_PZ, min(self.crop_pz_y2, float(h)))
+
+        x1, y1, x2, y2 = self.crop_pz_x1, self.crop_pz_y1, self.crop_pz_x2, self.crop_pz_y2
+
+        self.maska_pz_gora.height = y1
+        self.maska_pz_dol.height = h - y2
+        self.maska_pz_lewo.top = y1
+        self.maska_pz_lewo.height = y2 - y1
+        self.maska_pz_lewo.width = x1
+        self.maska_pz_prawo.top = y1
+        self.maska_pz_prawo.height = y2 - y1
+        self.maska_pz_prawo.width = w - x2
+
+        self.strefa_srodka_pz.top = y1
+        self.strefa_srodka_pz.left = x1
+        self.strefa_srodka_pz.width = x2 - x1
+        self.strefa_srodka_pz.height = y2 - y1
+
+        self.uchwyt_pz_lt.top = y1
+        self.uchwyt_pz_lt.left = x1
+        self.uchwyt_pz_rt.top = y1
+        self.uchwyt_pz_rt.left = x2 - self.UCHWYT_ROZMIAR_DOK_PZ
+        self.uchwyt_pz_lb.top = y2 - self.UCHWYT_ROZMIAR_DOK_PZ
+        self.uchwyt_pz_lb.left = x1
+        self.uchwyt_pz_rb.top = y2 - self.UCHWYT_ROZMIAR_DOK_PZ
+        self.uchwyt_pz_rb.left = x2 - self.UCHWYT_ROZMIAR_DOK_PZ
+        self.page.update()
+
+    def _przesun_uchwyt_pz(self, ktory: str, dx: float, dy: float):
+        self.kadr_pz_zmieniony = True
+        if ktory == "lt":
+            self.crop_pz_x1 += dx
+            self.crop_pz_y1 += dy
+        elif ktory == "rt":
+            self.crop_pz_x2 += dx
+            self.crop_pz_y1 += dy
+        elif ktory == "lb":
+            self.crop_pz_x1 += dx
+            self.crop_pz_y2 += dy
+        elif ktory == "rb":
+            self.crop_pz_x2 += dx
+            self.crop_pz_y2 += dy
+        self._aktualizuj_kadrowanie_pz()
+
+    def _przesun_caly_kadr_pz(self, dx: float, dy: float):
+        self.kadr_pz_zmieniony = True
+        szer_k = self.crop_pz_x2 - self.crop_pz_x1
+        wys_k = self.crop_pz_y2 - self.crop_pz_y1
+
+        self.crop_pz_x1 += dx
+        self.crop_pz_y1 += dy
+        self.crop_pz_x2 = self.crop_pz_x1 + szer_k
+        self.crop_pz_y2 = self.crop_pz_y1 + wys_k
+
+        if self.crop_pz_x1 < 0:
+            self.crop_pz_x1 = 0.0
+            self.crop_pz_x2 = szer_k
+        if self.crop_pz_y1 < 0:
+            self.crop_pz_y1 = 0.0
+            self.crop_pz_y2 = wys_k
+        if self.crop_pz_x2 > self.SZEROKOSC_DOK_PZ:
+            self.crop_pz_x2 = float(self.SZEROKOSC_DOK_PZ)
+            self.crop_pz_x1 = self.crop_pz_x2 - szer_k
+        if self.crop_pz_y2 > self.WYSOKOSC_DOK_PZ:
+            self.crop_pz_y2 = float(self.WYSOKOSC_DOK_PZ)
+            self.crop_pz_y1 = self.crop_pz_y2 - wys_k
+
+        self._aktualizuj_kadrowanie_pz()
+
     def ustaw_stan_przycisku_foto_pz(self, czy_ma_zdjecie: bool):
-        self.podglad_obrazu_pz.visible = czy_ma_zdjecie
+        self.ramka_kadrowania_pz.visible = czy_ma_zdjecie
         self.btn_usun_zdjecie_pz.visible = czy_ma_zdjecie
         self.wiersz_obrotu_pz.visible = czy_ma_zdjecie
         self.btn_akcja_analiza_pz.visible = czy_ma_zdjecie
@@ -198,11 +355,18 @@ class ViewsManager:
         self.aktualne_zdjecie_pz["sciezka"] = nowa_sciezka
         self.podglad_obrazu_pz.src_base64 = None
         self.podglad_obrazu_pz.src = nowa_sciezka
-        self.podglad_obrazu_pz.visible = True
-        self.btn_usun_zdjecie_pz.visible = True
-        self.wiersz_obrotu_pz.visible = True
+        self.img_pelny_podglad_pz.src = nowa_sciezka
+        
+        # Reset kadru do domyślnych wymiarów pełnego okna
+        self.crop_pz_x1 = 0.0
+        self.crop_pz_y1 = 0.0
+        self.crop_pz_x2 = float(self.SZEROKOSC_DOK_PZ)
+        self.crop_pz_y2 = float(self.WYSOKOSC_DOK_PZ)
+        self.kadr_pz_zmieniony = False
+        self._aktualizuj_kadrowanie_pz()
+
         self.ustaw_stan_przycisku_foto_pz(True)
-        self.status_text_pz.value = "Zdjęcie gotowe. Kliknij 'Rozpocznij analizę PZ'."
+        self.status_text_pz.value = "Zdjęcie gotowe. Dopasuj kadr i kliknij 'Rozpocznij analizę PZ'."
         self.status_text_pz.color = ft.Colors.CYAN_ACCENT
         self.page.update()
 
@@ -215,8 +379,30 @@ class ViewsManager:
         self.aktualne_zdjecie_pz["sciezka"] = nowa_sciezka
         self.podglad_obrazu_pz.src_base64 = None
         self.podglad_obrazu_pz.src = nowa_sciezka
+        self.img_pelny_podglad_pz.src = nowa_sciezka
         self.ui.dopisz_log(f"Obrócono obraz o {kat}°.")
         self.page.update()
+
+    async def pokaz_pelny_podglad_pz(self, e):
+        if not self.aktualne_zdjecie_pz["sciezka"] or not os.path.exists(self.aktualne_zdjecie_pz["sciezka"]):
+            return
+
+        sciezka_do_wyswietlenia = self.aktualne_zdjecie_pz["sciezka"]
+
+        if getattr(self, "kadr_pz_zmieniony", False):
+            proc_lewo = (self.crop_pz_x1 / self.SZEROKOSC_DOK_PZ) * 100.0
+            proc_gora = (self.crop_pz_y1 / self.WYSOKOSC_DOK_PZ) * 100.0
+            proc_prawo = ((self.SZEROKOSC_DOK_PZ - self.crop_pz_x2) / self.SZEROKOSC_DOK_PZ) * 100.0
+            proc_dol = ((self.WYSOKOSC_DOK_PZ - self.crop_pz_y2) / self.WYSOKOSC_DOK_PZ) * 100.0
+
+            loop = asyncio.get_running_loop()
+            sciezka_do_wyswietlenia = await loop.run_in_executor(
+                None, core.kadruj_plik_graficzny, self.aktualne_zdjecie_pz["sciezka"],
+                proc_lewo, proc_gora, proc_prawo, proc_dol
+            )
+
+        self.img_pelny_podglad_pz.src = sciezka_do_wyswietlenia
+        self.ui.bezpiecznie_otworz_dialog(self.dlg_pelny_podglad_pz)
 
     def usun_wybrane_zdjecie_pz(self, e=None):
         sciezka_pliku = self.aktualne_zdjecie_pz.get("sciezka")
@@ -230,7 +416,7 @@ class ViewsManager:
         self.aktualne_zdjecie_pz["sciezka"] = None
         self.podglad_obrazu_pz.src_base64 = None
         self.podglad_obrazu_pz.src = config.PUSTY_OBRAZ
-        self.podglad_obrazu_pz.visible = False
+        self.ramka_kadrowania_pz.visible = False
         self.btn_usun_zdjecie_pz.visible = False
         self.wiersz_obrotu_pz.visible = False
         self.btn_akcja_analiza_pz.visible = False
@@ -641,13 +827,16 @@ class ViewsManager:
             self.wiersz_obrotu_pz.visible = czy_ma_foto
             self.page.update()
 
-    # =========================================================================
-    # 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, KADROWANIE, FULLSCREEN, DIALOG WYNIKÓW)
-    # =========================================================================
+# =========================================================================
+# 2. MODUŁ II: DOKUMENT (UKŁAD 1:1, KADROWANIE, FULLSCREEN, ZACHOWANIE STANU)
+# =========================================================================
     def _inicjalizuj_modul_dokument(self):
         self.SZEROKOSC_DOK = 320
         self.WYSOKOSC_DOK = 280
         self.UCHWYT_ROZMIAR_DOK = 44
+
+        # Słownik przechowujący ostatni wynik odczytu, aby można było go przywrócić
+        self.ostatni_wynik_dok = {"tekst": None}
 
         # Współrzędne ramki kadrowania
         self.crop_dok_x1 = 0.0
@@ -740,6 +929,14 @@ class ViewsManager:
             on_click=self.analizuj_dokument_dok
         )
 
+        # Przycisk powrotu do ostatniego wyniku bez ponownej analizy
+        self.btn_wroc_wynik_dok = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.HISTORY, size=18), ft.Text("Wróć do ostatnich wyników odczytu", size=12)], alignment=ft.MainAxisAlignment.CENTER),
+            visible=False, height=44,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=self.klik_wroc_do_wynikow_dok
+        )
+
         # Kontrolki do okna modalnego z wynikami
         self.txt_edytor_dok = ft.TextField(
             multiline=True, min_lines=12, max_lines=24, text_size=12, dense=True,
@@ -788,7 +985,7 @@ class ViewsManager:
                 width=450
             ),
             actions=[
-                ft.Button("Zamknij", on_click=lambda e: self.page.pop_dialog())
+                ft.Button("Zamknij", on_click=lambda e: self.zamknij_dlg_wynik_dok())
             ]
         )
 
@@ -835,7 +1032,8 @@ class ViewsManager:
             self.pasek_dok,
             self.ramka_dok,
             self.wiersz_obrotu_dok,
-            self.btn_start_dok
+            self.btn_start_dok,
+            self.btn_wroc_wynik_dok
         ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, visible=False)
 
     # --- OBSŁUGA KADRU I GESTÓW W DOKUMENCIE ---
@@ -910,7 +1108,6 @@ class ViewsManager:
 
         sciezka_do_wyswietlenia = self.zdjecie_dok["sciezka"]
 
-        # Jeśli ramka kadrowania była ruszana – przycinamy dokładnie do zaznaczonego obszaru
         if self.kadr_dok_zmieniony:
             proc_lewo = (self.crop_dok_x1 / self.SZEROKOSC_DOK) * 100.0
             proc_gora = (self.crop_dok_y1 / self.WYSOKOSC_DOK) * 100.0
@@ -989,7 +1186,6 @@ class ViewsManager:
             uzywa_chmury = cfg.get("use_cloud", True)
             wymiar = cfg.get("image_resolution", 1800)
 
-            # Obsługa WoL i oczekiwanie na serwer lokalny (jeśli wybrano LM Studio)
             if not uzywa_chmury:
                 ip_lokalne = cfg.get("local_ip", "192.168.1.154").strip()
                 port_str = cfg.get("local_port", "1234").strip()
@@ -1063,7 +1259,11 @@ class ViewsManager:
                 dane_odp = res.json()
                 surowy_tekst = dane_odp["choices"][0]["message"]["content"].strip()
 
+                # Zapisujemy wynik do pamięci podręcznej i uaktywniamy przycisk powrotu
                 self.txt_edytor_dok.value = surowy_tekst
+                self.ostatni_wynik_dok["tekst"] = surowy_tekst
+                self.btn_wroc_wynik_dok.visible = True
+
                 self.status_dok.value = "✅ Dokument został pomyślnie odczytany."
                 self.status_dok.color = ft.Colors.GREEN_ACCENT
                 self.ui.bezpiecznie_otworz_dialog(self.dlg_wynik_dok)
@@ -1076,6 +1276,18 @@ class ViewsManager:
             self.pasek_dok.visible = False
             self.btn_start_dok.disabled = False
             self.page.update()
+
+    def klik_wroc_do_wynikow_dok(self, e):
+        if self.ostatni_wynik_dok.get("tekst"):
+            self.txt_edytor_dok.value = self.ostatni_wynik_dok["tekst"]
+            self.ui.bezpiecznie_otworz_dialog(self.dlg_wynik_dok)
+
+    def zamknij_dlg_wynik_dok(self):
+        self.page.pop_dialog()
+        self.btn_wroc_wynik_dok.visible = self.ostatni_wynik_dok.get("tekst") is not None
+        self.status_dok.value = "Wyniki odczytu dostępne. Możesz je przywrócić przyciskiem poniżej."
+        self.status_dok.color = ft.Colors.CYAN_ACCENT
+        self.page.update()
 
     async def kopiuj_do_schowka_dok(self, e):
         await ft.Clipboard().set(self.txt_edytor_dok.value)
