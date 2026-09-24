@@ -201,7 +201,7 @@ class ModulDocMixin:
             content=ft.Row([ft.Icon(ft.Icons.CAMERA_ALT), ft.Text("Zrób zdjęcie")], alignment=ft.MainAxisAlignment.CENTER),
             height=55, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("dok"))
+            on_click=lambda e: asyncio.create_task(self.ui.otworz_aparat_dla("dokument"))
         )
         self.wiersz_foto_dok = ft.Row([self.btn_foto_dok, self.btn_aparat_dok], spacing=10)
 
