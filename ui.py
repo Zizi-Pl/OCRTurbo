@@ -51,12 +51,32 @@ class UIManager:
             pass
 
     def bezpiecznie_otworz_dialog(self, dlg):
-        if hasattr(self.page, "_dialogs") and dlg in self.page._dialogs.controls and dlg.open:
-            return
         self.zamknij_kazdy_dialog()
-        if hasattr(self.page, "_dialogs") and dlg in self.page._dialogs.controls:
-            self.page._dialogs.controls.remove(dlg)
-        self.page.show_dialog(dlg)
+        try:
+            if hasattr(self.page, "open"):
+                self.page.open(dlg)
+            elif hasattr(self.page, "show_dialog"):
+                self.page.show_dialog(dlg)
+            else:
+                self.page.dialog = dlg
+                dlg.open = True
+                self.page.update()
+        except Exception:
+            pass
+
+    # --- POMOCNIK POBIERANIA BAZY ---
+    def _pobierz_baze_robocza(self) -> list:
+        baza = []
+        if self.views_manager and self.views_manager.stan_weryfikacji:
+            baza = self.views_manager.stan_weryfikacji.get("baza") or []
+
+        if not baza:
+            konfig = config.wczytaj_konfiguracje()
+            sciezka = config.pobierz_aktualna_sciezke_bazy(konfig)
+            baza = core.wczytaj_baze_pcmarket(sciezka)
+            if self.views_manager and self.views_manager.stan_weryfikacji:
+                self.views_manager.stan_weryfikacji["baza"] = baza
+        return baza
 
     # --- OKNO BŁĘDÓW / ALERT ---
     def _inicjalizuj_alert_dialog(self):
@@ -132,7 +152,7 @@ class UIManager:
     def otworz_konsole(self, e=None):
         self.bezpiecznie_otworz_dialog(self.dlg_konsola)
 
-    # --- OBSŁUGA APARATU 1:1 Z MAIN (PEŁNY EKRAN + DOTYKOWA MIGAWKA) ---
+    # --- OBSŁUGA APARATU ---
     def aparat_obslugiwany(self) -> bool:
         return bool(self.page.web) or self.page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
 
@@ -245,7 +265,7 @@ class UIManager:
             self.dopisz_log(f"Błąd aparatu: {err}", ft.Colors.RED)
             self.pokaz_okno_bledu("Błąd aparatu", f"Nie udało się uruchomić aparatu: {err}")
 
-    # --- ZARZĄDZANIE REGULAMI MAPOWAŃ ---
+    # --- ZARZĄDZANIE REGUŁAMI MAPOWAŃ ---
     def _inicjalizuj_okno_mapowan(self):
         self.txt_nowy_wzorzec = ft.TextField(label="Nazwa z faktury (np. BANAN)", dense=True, expand=True)
         self.txt_nowy_kod = ft.TextField(label="Kod PC-Market", dense=True, width=130)
@@ -258,15 +278,17 @@ class UIManager:
                 self.pokaz_okno_bledu("Błąd", "Podaj nazwę wzorca oraz kod PC-Market.", powrot_do=self.dlg_baza_edycja)
                 return
 
+            baza = self._pobierz_baze_robocza()
+            nazwa_b = self.znajdz_nazwe_dla_kodu(kd, baza)
             mapa = core.wczytaj_baze_mapowan()
-            core.dodaj_regule(mapa, wz, kd)
+            core.dodaj_regule(mapa, wz, kd, nazwa_baza=nazwa_b)
             core.zapisz_baze_mapowan(mapa)
 
             self.txt_nowy_wzorzec.value = ""
             self.txt_nowy_kod.value = ""
             self.odswiez_widok_mapowan(self.txt_filtr_bazy.value)
             self.odswiez_status_bazy()
-            self.dopisz_log(f"Dodano powiązanie: {wz} -> {kd}", ft.Colors.GREEN_ACCENT)
+            self.dopisz_log(f"Dodano powiązanie: {wz} -> {kd} ({nazwa_b})", ft.Colors.GREEN_ACCENT)
 
         self.txt_filtr_bazy = ft.TextField(
             label="🔍 Filtruj zapisane reguły...",
@@ -305,19 +327,28 @@ class UIManager:
         filtr_upper = filtr.upper().strip()
         mapa = core.wczytaj_baze_mapowan()
 
-        for wzorzec, kod in sorted(mapa.items()):
-            if filtr_upper and filtr_upper not in wzorzec and filtr_upper not in kod:
+        for wzorzec, val in sorted(mapa.items()):
+            kod = val.get("kod", "") if isinstance(val, dict) else str(val)
+            nazwa_b = val.get("nazwa_baza", "") if isinstance(val, dict) else ""
+            kod_cn = val.get("kod_dostawcy", "") if isinstance(val, dict) else ""
+
+            if filtr_upper and filtr_upper not in wzorzec and filtr_upper not in kod and filtr_upper not in nazwa_b:
                 continue
 
             def stworz_callback_usun(wz=wzorzec):
                 def usun_klik(e):
                     m = core.wczytaj_baze_mapowan()
-                    if wz in m:
-                        del m[wz]
+                    if core.usun_regule(m, wz):
                         core.zapisz_baze_mapowan(m)
                         self.odswiez_widok_mapowan(self.txt_filtr_bazy.value)
                         self.odswiez_status_bazy()
                 return usun_klik
+
+            podpis = f"Kod PC-Market: {kod}"
+            if nazwa_b:
+                podpis += f" ({nazwa_b})"
+            if kod_cn:
+                podpis += f" | Kod dostawcy: {kod_cn}"
 
             self.lista_mapowan_view.controls.append(
                 ft.Container(
@@ -325,7 +356,7 @@ class UIManager:
                         [
                             ft.Column([
                                 ft.Text(wzorzec, weight=ft.FontWeight.BOLD, size=13),
-                                ft.Text(f"Kod: {kod}", size=11, color=ft.Colors.GREEN_400)
+                                ft.Text(podpis, size=11, color=ft.Colors.GREEN_400)
                             ], expand=True),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINE,
@@ -351,12 +382,12 @@ class UIManager:
         sciezka = config.pobierz_aktualna_sciezke_bazy(konfig)
         baza = core.wczytaj_baze_pcmarket(sciezka)
         mapa = core.wczytaj_baze_mapowan()
-        nazwa = os.path.basename(sciezka)
+        nazwa = os.path.basename(sciezka) if sciezka else "kartoteka.json"
         if baza:
-            self.lbl_status_bazy.value = f"Katalog: {len(baza)} towarów ({nazwa}) | Własne reguły: {len(mapa)}"
+            self.lbl_status_bazy.value = f"Katalog: {len(baza)} towarów ({nazwa}) | Relacje OCR: {len(mapa)}"
             self.lbl_status_bazy.color = ft.Colors.GREEN_300
         else:
-            self.lbl_status_bazy.value = f"⚠️ Brak towarów w pliku bazy ({nazwa}) | Własne reguły: {len(mapa)}"
+            self.lbl_status_bazy.value = f"⚠️ Brak towarów w bazie ({nazwa}) | Relacje OCR: {len(mapa)}"
             self.lbl_status_bazy.color = ft.Colors.ORANGE_300
         self.page.update()
 
@@ -434,23 +465,36 @@ class UIManager:
 
         async def wybierz_plik_bazy(e):
             try:
-                pliki = await self.pickery["baza"].pick_files(allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["txt"])
+                pliki = await self.pickery["baza"].pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["xlsx", "txt"]
+                )
                 if pliki and len(pliki) > 0 and pliki[0].path:
                     src = pliki[0].path
                     nazwa = os.path.basename(src)
-                    if not core.wczytaj_baze_pcmarket(src):
+                    
+                    # Wczytanie z walidacją
+                    baza_wczytana = core.wczytaj_baze_pcmarket(src)
+                    if not baza_wczytana:
                         self.pokaz_okno_bledu("Nieprawidłowy plik bazy", f"W pliku {nazwa} nie znaleziono żadnych towarów.", powrot_do=self.dlg_ustawienia)
                         return
+
                     dst = os.path.join(config.KATALOG_DANYCH, nazwa)
                     try:
                         shutil.copyfile(src, dst)
                     except Exception:
                         dst = src
+
                     konf = config.wczytaj_konfiguracje()
                     konf["baza_file_path"] = dst
                     config.zapisz_konfiguracje(konf)
+
+                    if self.views_manager and self.views_manager.stan_weryfikacji:
+                        self.views_manager.stan_weryfikacji["baza"] = baza_wczytana
+
                     self.odswiez_status_bazy()
-                    self.dopisz_log(f"Wczytano bazę: {nazwa}", ft.Colors.CYAN_ACCENT)
+                    self.dopisz_log(f"Wczytano bazę PC-Market: {nazwa} ({len(baza_wczytana)} towarów)", ft.Colors.CYAN_ACCENT)
             except Exception as err_b:
                 self.pokaz_okno_bledu("Błąd wczytywania bazy", str(err_b), powrot_do=self.dlg_ustawienia)
 
@@ -467,7 +511,7 @@ class UIManager:
                     core.zapisz_baze_mapowan(polaczone)
                     self.odswiez_widok_mapowan()
                     self.odswiez_status_bazy()
-                    self.dopisz_log(f"Wczytano {len(nowe)} reguł.", ft.Colors.CYAN_ACCENT)
+                    self.dopisz_log(f"Wczytano {len(nowe)} reguł OCR.", ft.Colors.CYAN_ACCENT)
             except Exception as err_m:
                 self.pokaz_okno_bledu("Błąd mapowań", str(err_m), powrot_do=self.dlg_ustawienia)
 
@@ -478,16 +522,19 @@ class UIManager:
             if os.path.exists(sciezka_bazy):
                 pliki_sciezki.append(sciezka_bazy)
                 pliki_share.append(ft.ShareFile.from_path(sciezka_bazy))
+            if os.path.exists(core.KARTOTEKA_FILE):
+                pliki_sciezki.append(core.KARTOTEKA_FILE)
+                pliki_share.append(ft.ShareFile.from_path(core.KARTOTEKA_FILE))
             if os.path.exists(config.MAPA_FILE):
                 pliki_sciezki.append(config.MAPA_FILE)
                 pliki_share.append(ft.ShareFile.from_path(config.MAPA_FILE))
             if not pliki_sciezki:
-                self.pokaz_okno_bledu("Brak plików", "Nie znaleziono pliku bazy TXT ani mapowań JSON.", powrot_do=self.dlg_ustawienia)
+                self.pokaz_okno_bledu("Brak plików", "Nie znaleziono pliku bazy ani mapowań.", powrot_do=self.dlg_ustawienia)
                 return
             try:
                 if hasattr(self.serwis_udostepniania, "share_files"):
                     try:
-                        await self.serwis_udostepniania.share_files(pliki_share, text="Baza towarowa i mapowania")
+                        await self.serwis_udostepniania.share_files(pliki_share, text="Baza towarowa i relacje OCR")
                     except Exception:
                         await self.serwis_udostepniania.share_files(pliki_sciezki)
             except Exception as err_s:
@@ -496,10 +543,10 @@ class UIManager:
         kontener_baza = ft.Column([
             ft.Text("Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300),
             self.chk_db_matching,
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.FOLDER_OPEN), ft.Text("Wybierz plik bazy (.txt)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_900, color=ft.Colors.WHITE), on_click=wybierz_plik_bazy),
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE), ft.Text("Wgraj plik mapowań (.json)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_900, color=ft.Colors.WHITE), on_click=wybierz_plik_mapowan),
+            ft.Button(content=ft.Row([ft.Icon(ft.Icons.FOLDER_OPEN), ft.Text("Wczytaj bazę (.xlsx / .txt)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_900, color=ft.Colors.WHITE), on_click=wybierz_plik_bazy),
+            ft.Button(content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE), ft.Text("Wgraj relacje OCR (.json)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_900, color=ft.Colors.WHITE), on_click=wybierz_plik_mapowan),
             ft.Button(content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Zarządzaj powiązaniami")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE), on_click=self.otworz_okno_bazy_recznej),
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.IOS_SHARE), ft.Text("Udostępnij kody (TXT + JSON)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_800, color=ft.Colors.WHITE), on_click=udostepnij_bazy_kody),
+            ft.Button(content=ft.Row([ft.Icon(ft.Icons.IOS_SHARE), ft.Text("Udostępnij bazy i kody")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_800, color=ft.Colors.WHITE), on_click=udostepnij_bazy_kody),
             self.lbl_status_bazy
         ], spacing=6)
 
@@ -539,7 +586,7 @@ class UIManager:
 
                 mapa = core.wczytaj_baze_mapowan()
                 pakiet = {
-                    "wersja": "1.0",
+                    "wersja": "2.0",
                     "data_utworzenia": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "konfiguracja": k,
                     "mapowania": mapa
@@ -640,10 +687,52 @@ class UIManager:
     def otworz_ustawienia(self, e=None):
         self.bezpiecznie_otworz_dialog(self.dlg_ustawienia)
 
-    # --- OKNO WERYFIKACJI I UNIWERSALNA EDYCJA POZYCJI ---
+    # --- POMOCNIK SZUKANIA NAZWY PO KODZIE ---
+    def znajdz_nazwe_dla_kodu(self, kod_szukany: str, baza: list = None) -> str:
+        if not kod_szukany:
+            return ""
+        kod_czysty = core.normalizuj_kod_porownawczy(kod_szukany)
+        prefiks = kod_czysty[:6] if len(kod_czysty) >= 6 else kod_czysty
+
+        # 1. Sprawdzamy kartotekę PC-Market
+        if baza is None or not baza:
+            baza = self._pobierz_baze_robocza()
+
+        if baza:
+            for t in baza:
+                k_t = core.normalizuj_kod_porownawczy(t.get("kod", ""))
+                kw_t = core.normalizuj_kod_porownawczy(t.get("kod_wew", ""))
+                if k_t == kod_czysty or kw_t == kod_czysty:
+                    return t.get("nazwa", "")
+                for kk in t.get("kody_kreskowe", []):
+                    if core.normalizuj_kod_porownawczy(kk) == kod_czysty:
+                        return t.get("nazwa", "")
+
+            # Dopasowanie po prefiksie kodu wagowego
+            if len(prefiks) >= 4:
+                for t in baza:
+                    k_t = core.normalizuj_kod_porownawczy(t.get("kod", ""))
+                    if k_t.startswith(prefiks) or prefiks.startswith(k_t):
+                        return t.get("nazwa", "")
+                    for kk in t.get("kody_kreskowe", []):
+                        kk_s = core.normalizuj_kod_porownawczy(kk)
+                        if kk_s.startswith(prefiks) or prefiks.startswith(kk_s):
+                            return t.get("nazwa", "")
+
+        # 2. Sprawdzamy słownik relacji OCR
+        mapa = core.wczytaj_baze_mapowan()
+        for _, val in mapa.items():
+            if isinstance(val, dict):
+                k = core.normalizuj_kod_porownawczy(val.get("kod", ""))
+                if (k == kod_czysty or (len(prefiks) >= 4 and k.startswith(prefiks))) and val.get("nazwa_baza"):
+                    return val.get("nazwa_baza")
+
+        return ""
+
+    # --- OKNO WERYFIKACJI I EDYCJA POZYCJI (FILOZOFIA PC-MARKET F5 / F8) ---
     def _inicjalizuj_okno_weryfikacji(self):
         self.lbl_podsumowanie_weryfikacji = ft.Text("", size=12, weight=ft.FontWeight.BOLD)
-        # Rejestracja bieżącej pozycji suwaka
+        
         def zapisz_ruch_scrolla(e: ft.OnScrollEvent):
             if e.pixels is not None:
                 self._pozycja_scrolla_pz = e.pixels
@@ -655,12 +744,28 @@ class UIManager:
             on_scroll=zapisz_ruch_scrolla
         )
 
-        # Kontrolki w uniwersalnym oknie edycji pozycji
-        self.lbl_edycja_nazwa = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+        # Kontrolki w oknie edycji pozycji
+        self.lbl_edycja_nazwa_ocr = ft.Text("", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+        self.lbl_edycja_kod_ocr = ft.Text("", size=11, color=ft.Colors.CYAN_300)
+        self.lbl_edycja_nazwa_baza = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400)
+        
         self.txt_edycja_kod = ft.TextField(label="Kod PC-Market / EAN", dense=True, expand=True)
 
+        def przy_zmianie_kodu_w_edycji(e):
+            kod_wpisany = self.txt_edycja_kod.value.strip()
+            nazwa_z_bazy = self.znajdz_nazwe_dla_kodu(kod_wpisany)
+            if nazwa_z_bazy:
+                self.lbl_edycja_nazwa_baza.value = f"📦 W bazie PC-Market: {nazwa_z_bazy}"
+                self.lbl_edycja_nazwa_baza.color = ft.Colors.GREEN_400
+            else:
+                self.lbl_edycja_nazwa_baza.value = "⚠️ Brak tego kodu w bazie PC-Market"
+                self.lbl_edycja_nazwa_baza.color = ft.Colors.AMBER_400
+            self.lbl_edycja_nazwa_baza.update()
+
+        self.txt_edycja_kod.on_change = przy_zmianie_kodu_w_edycji
+
         btn_szukaj_w_bazie = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.SEARCH, size=18), ft.Text("Szukaj w bazie")], spacing=4),
+            content=ft.Row([ft.Icon(ft.Icons.SEARCH, size=18), ft.Text("Szukaj w bazie (F5)")], spacing=4),
             style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, padding=10),
             on_click=lambda e: self.otworz_wyszukiwarke(self.views_manager.stan_weryfikacji.get("indeks_edytowany", -1))
         )
@@ -698,12 +803,15 @@ class UIManager:
             cn = core.parsuj_liczbe(self.txt_edycja_cena.value)
             if il is not None and cn is not None:
                 self.txt_edycja_wartosc.value = f"{il * cn:.2f}"
-                self.page.update()
+                try:
+                    self.txt_edycja_wartosc.update()
+                except Exception:
+                    self.page.update()
 
         self.txt_edycja_ilosc.on_change = przelicz_w_locie
         self.txt_edycja_cena.on_change = przelicz_w_locie
 
-        # Zapis i aktualizacja mapowania
+        # Zapis i aktualizacja mapowania (F5)
         def zapisz_pelna_edycje(e):
             if not self.views_manager:
                 return
@@ -721,11 +829,15 @@ class UIManager:
                 poz["kod_dopasowany"] = nowy_kod
                 poz["pewnosc"] = "REGULA" if nowy_kod else "BRAK"
 
-                # Zapis do pliku mapowań, jeśli kod został wpisany/zmieniony
                 oryg_nazwa = poz.get("oryg_nazwa", "").upper().strip()
-                if oryg_nazwa and nowy_kod:
+                kod_cn = str(poz.get("kod") or "").strip()
+                if oryg_nazwa:
                     mapa = core.wczytaj_baze_mapowan()
-                    core.dodaj_regule(mapa, oryg_nazwa, nowy_kod)
+                    if nowy_kod:
+                        nazwa_b = self.znajdz_nazwe_dla_kodu(nowy_kod)
+                        core.dodaj_regule(mapa, oryg_nazwa, nowy_kod, nazwa_baza=nazwa_b, kod_dostawcy=kod_cn)
+                    else:
+                        core.usun_regule(mapa, oryg_nazwa)
                     core.zapisz_baze_mapowan(mapa)
                     self.odswiez_status_bazy()
 
@@ -737,7 +849,7 @@ class UIManager:
             self.odswiez_weryfikacje()
             self.bezpiecznie_otworz_dialog(self.dlg_weryfikacja)
 
-        # Wyczyść kod / powiązanie (pod F5 w PC-Market)
+        # Rozparowanie pozycji (F8)
         def wyczysc_kod_pozycji(e):
             self.txt_edycja_kod.value = ""
             if not self.views_manager:
@@ -754,7 +866,6 @@ class UIManager:
                         self.odswiez_status_bazy()
             zapisz_pelna_edycje(None)
 
-        # Usunięcie pozycji z PZ
         def usun_pozycje_z_pz(e):
             if not self.views_manager:
                 return
@@ -762,7 +873,6 @@ class UIManager:
             dane = self.views_manager.stan_weryfikacji.get("dane")
             if idx >= 0 and dane and idx < len(dane.get("pozycje", [])):
                 del dane["pozycje"][idx]
-                # Ustawienie scrolla na pozycję wyżej
                 nowy_idx = max(0, idx - 1) if dane["pozycje"] else -1
                 self.views_manager.stan_weryfikacji["indeks_edytowany"] = nowy_idx
 
@@ -773,6 +883,21 @@ class UIManager:
             self.odswiez_weryfikacje()
             self.bezpiecznie_otworz_dialog(self.dlg_weryfikacja)
 
+        # Sekcja nagłówkowa w oknie edycji pozycji
+        sekcja_info_pozycji = ft.Container(
+            content=ft.Column([
+                ft.Text("DANE Z FAKTURY (OCR):", size=10, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400),
+                self.lbl_edycja_nazwa_ocr,
+                self.lbl_edycja_kod_ocr,
+                ft.Divider(height=6, color=ft.Colors.GREY_800),
+                self.lbl_edycja_nazwa_baza
+            ], spacing=3),
+            padding=10,
+            bgcolor=ft.Colors.GREY_900,
+            border_radius=8,
+            border=ft.Border.all(1, ft.Colors.BLUE_GREY_800)
+        )
+
         self.dlg_edycja_pozycji = ft.AlertDialog(
             modal=True,
             inset_padding=ft.Padding(10, 20, 10, 20),
@@ -780,15 +905,15 @@ class UIManager:
             content=ft.Container(
                 content=ft.Column(
                     [
-                        self.lbl_edycja_nazwa,
-                        ft.Divider(height=1, color=ft.Colors.GREY_800),
+                        sekcja_info_pozycji,
+                        ft.Divider(height=1, color=ft.Colors.TRANSPARENT),
                         wiersz_kodu,
                         wiersz_jm,
                         ft.Row([self.txt_edycja_ilosc, self.txt_edycja_cena], spacing=10),
                         self.txt_edycja_wartosc,
                         ft.Row([
                             ft.Button(
-                                content=ft.Row([ft.Icon(ft.Icons.LINK_OFF, size=16), ft.Text("Wyczyść kod (F5)", size=12)]),
+                                content=ft.Row([ft.Icon(ft.Icons.LINK_OFF, size=16), ft.Text("Rozparuj (F8)", size=12)]),
                                 style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_900, color=ft.Colors.WHITE, padding=8),
                                 on_click=wyczysc_kod_pozycji,
                                 expand=True
@@ -813,7 +938,7 @@ class UIManager:
             ]
         )
 
-        # Wyszukiwarka w locie
+        # Wyszukiwarka kartoteki w locie (F5)
         self.lista_wyszukiwarki = ft.ListView(expand=True, spacing=6)
         self.pole_szukaj_towaru = ft.TextField(
             label="🔍 Wpisz nazwę lub kod z PC-Market...",
@@ -824,7 +949,7 @@ class UIManager:
         self.dlg_wyszukiwarka = ft.AlertDialog(
             modal=True,
             inset_padding=ft.Padding(10, 16, 10, 16),
-            title=ft.Text("🔍 Baza towarowa PC-Market", size=18, weight=ft.FontWeight.BOLD),
+            title=ft.Text("🔍 Kartoteka towarowa PC-Market", size=18, weight=ft.FontWeight.BOLD),
             content=ft.Container(
                 content=ft.Column(
                     [
@@ -853,7 +978,6 @@ class UIManager:
             if self.views_manager:
                 self.views_manager.anuluj_weryfikacje()
 
-        # Estetyczna górna belka podsumowania ze statystykami
         self.lbl_podsumowanie_weryfikacji.size = 12
         self.lbl_podsumowanie_weryfikacji.color = ft.Colors.GREEN_200
 
@@ -868,7 +992,6 @@ class UIManager:
             border=ft.Border.all(1, ft.Colors.GREEN_900)
         )
 
-        # Główny pełnoekranowy dialog weryfikacji PZ
         self.dlg_weryfikacja = ft.AlertDialog(
             modal=True,
             inset_padding=ft.Padding(8, 14, 8, 14),
@@ -909,8 +1032,24 @@ class UIManager:
         self.views_manager.stan_weryfikacji["indeks_edytowany"] = idx
         poz = dane["pozycje"][idx]
 
-        self.lbl_edycja_nazwa.value = poz.get("oryg_nazwa") or poz.get("nazwa") or "Pozycja bez nazwy"
-        self.txt_edycja_kod.value = str(poz.get("kod_dopasowany") or poz.get("kod") or "")
+        # 1. Dane z faktury / OCR
+        oryg_n = poz.get("oryg_nazwa") or poz.get("nazwa") or "Pozycja bez nazwy"
+        oryg_k = str(poz.get("kod") or "Brak")
+        self.lbl_edycja_nazwa_ocr.value = oryg_n
+        self.lbl_edycja_kod_ocr.value = f"Oryginalny kod z dokumentu: {oryg_k}"
+
+        # 2. Kod dopasowany i nazwa z bazy PC-Market
+        akt_kod = str(poz.get("kod_dopasowany") or poz.get("kod") or "")
+        self.txt_edycja_kod.value = akt_kod
+
+        baza = self._pobierz_baze_robocza()
+        nazwa_z_bazy = self.znajdz_nazwe_dla_kodu(akt_kod, baza)
+        if nazwa_z_bazy:
+            self.lbl_edycja_nazwa_baza.value = f"📦 W bazie PC-Market: {nazwa_z_bazy}"
+            self.lbl_edycja_nazwa_baza.color = ft.Colors.GREEN_400
+        else:
+            self.lbl_edycja_nazwa_baza.value = "⚠️ Pozycja zdefiniowana ręcznie (brak w pliku bazy PC-Market)"
+            self.lbl_edycja_nazwa_baza.color = ft.Colors.AMBER_400
 
         aktualna_jm = str(poz.get("jm") or "kg").strip().lower().rstrip(".")
         self.ustaw_jm_fn(aktualna_jm if aktualna_jm else "kg")
@@ -933,43 +1072,82 @@ class UIManager:
         self.lista_wyszukiwarki.controls.clear()
         if not self.views_manager:
             return
-        fraza = core.usun_diakrytyki(self.pole_szukaj_towaru.value.strip().upper())
+
+        fraza_raw = (self.pole_szukaj_towaru.value or "").strip()
+        fraza = core.usun_diakrytyki(fraza_raw.upper())
         fragmenty = fraza.split()
 
         licznik = 0
-        baza = self.views_manager.stan_weryfikacji.get("baza", [])
-        for towar in baza:
-            nazwa_towaru = towar["nazwa"]
-            kod_towaru = towar["kod_wew"]
+        baza = self._pobierz_baze_robocza()
 
-            czy_pasuje = True
-            for frag in fragmenty:
-                if frag not in core.usun_diakrytyki(nazwa_towaru) and frag not in kod_towaru:
-                    czy_pasuje = False
-                    break
+        # 1. Przeszukiwanie bazy głównej PC-Market
+        for towar in baza:
+            nazwa_towaru = towar.get("nazwa", "")
+            kod_glowny = str(towar.get("kod") or "").strip()
+            kod_wew = str(towar.get("kod_wew") or "").strip()
+            kody_kreskowe = [str(k).strip() for k in towar.get("kody_kreskowe", [])]
+            asortyment = str(towar.get("asortyment") or "").strip()
+
+            if not fragmenty:
+                czy_pasuje = True
+            else:
+                tekst_do_przeszukania = core.usun_diakrytyki(f"{nazwa_towaru} {kod_glowny} {kod_wew} {' '.join(kody_kreskowe)} {asortyment}".upper())
+                czy_pasuje = all(frag in tekst_do_przeszukania for frag in fragmenty)
 
             if czy_pasuje:
+                kod_do_wstawienia = kod_glowny if kod_glowny else (kody_kreskowe[0] if kody_kreskowe else kod_wew)
+                podpis_kodu = f"Kod: {kod_do_wstawienia}"
+                if asortyment:
+                    podpis_kodu += f" | Dział: {asortyment}"
+                if kody_kreskowe and kody_kreskowe[0] != kod_do_wstawienia:
+                    podpis_kodu += f" | EAN: {kody_kreskowe[0]}"
+
                 self.lista_wyszukiwarki.controls.append(
                     ft.Container(
                         content=ft.Row([
                             ft.Column([
                                 ft.Text(nazwa_towaru, size=12, weight=ft.FontWeight.BOLD),
-                                ft.Text(f"Kod: {kod_towaru}", size=11, color=ft.Colors.GREY_400)
-                            ], expand=True),
-                            ft.Button("Wybierz", style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900), on_click=lambda e, k=kod_towaru: self.klik_wybierz_z_wyszukiwarki(k))
-                        ]),
-                        padding=4,
+                                ft.Text(podpis_kodu, size=11, color=ft.Colors.GREY_400)
+                            ], expand=True, spacing=2),
+                            ft.Button(
+                                "Wybierz (F5)",
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE),
+                                on_click=lambda e, k=kod_do_wstawienia, n=nazwa_towaru: self.klik_wybierz_z_wyszukiwarki(k, n)
+                            )
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        padding=ft.Padding(6, 6, 6, 6),
                         border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.GREY_800))
                     )
                 )
                 licznik += 1
                 if licznik >= 40:
                     break
+
+        if licznik == 0:
+            komunikat = "Brak wyników pasujących do wpisanej frazy."
+            if not baza:
+                komunikat = "⚠️ Baza PC-Market jest pusta. Wgraj plik .xlsx lub .txt w Ustawieniach."
+            self.lista_wyszukiwarki.controls.append(
+                ft.Container(
+                    content=ft.Text(komunikat, size=12, color=ft.Colors.GREY_400),
+                    padding=10,
+                    alignment=ft.Alignment(0, 0)
+                )
+            )
+
         self.page.update()
 
-    def klik_wybierz_z_wyszukiwarki(self, kod: str):
-        # Podstawienie kodu do okna edycji
+    def klik_wybierz_z_wyszukiwarki(self, kod: str, nazwa_towaru: str = ""):
         self.txt_edycja_kod.value = kod
+        baza = self._pobierz_baze_robocza()
+        nazwa_z_bazy = nazwa_towaru if nazwa_towaru else self.znajdz_nazwe_dla_kodu(kod, baza)
+        if nazwa_z_bazy:
+            self.lbl_edycja_nazwa_baza.value = f"📦 W bazie PC-Market: {nazwa_z_bazy}"
+            self.lbl_edycja_nazwa_baza.color = ft.Colors.GREEN_400
+        else:
+            self.lbl_edycja_nazwa_baza.value = "⚠️ Pozycja zdefiniowana ręcznie"
+            self.lbl_edycja_nazwa_baza.color = ft.Colors.AMBER_400
+
         self.page.update()
         self.bezpiecznie_otworz_dialog(self.dlg_edycja_pozycji)
 
@@ -1007,8 +1185,7 @@ class UIManager:
             return
 
         self.aktualizuj_pasek_podsumowania()
-        baza = self.views_manager.stan_weryfikacji.get("baza", [])
-        mapa_kod_nazwa = {t["kod_wew"]: t["nazwa"] for t in baza}
+        baza = self._pobierz_baze_robocza()
 
         dane = self.views_manager.stan_weryfikacji["dane"]
         for i, poz in enumerate(dane.get("pozycje", [])):
@@ -1016,22 +1193,25 @@ class UIManager:
             kod = poz.get("kod_dopasowany", "")
             pewnosc = poz.get("pewnosc", "BRAK")
 
-            # Status kodowania
             if kod:
+                nazwa_z_bazy = self.znajdz_nazwe_dla_kodu(kod, baza)
+                
                 if pewnosc == "ORYGINAL":
                     tekst_kodu = ft.Text(f"Kod z faktury: {kod}", size=12, color=ft.Colors.CYAN_400)
-                elif pewnosc == "WAGA_KOD":
-                    tekst_kodu = ft.Text(f"Kod wagowy: {kod}", size=12, color=ft.Colors.GREEN_400)
+                elif pewnosc in ("WAGA_KOD", "REGULA_KOD_DOSTAWCY"):
+                    pref = f"Towar: {nazwa_z_bazy} " if nazwa_z_bazy else ""
+                    tekst_kodu = ft.Text(f"{pref}(Kod wagowy/CN: {kod})", size=12, color=ft.Colors.GREEN_400)
                 elif pewnosc == "EAN":
-                    tekst_kodu = ft.Text(f"EAN: {kod}", size=12, color=ft.Colors.BLUE_400)
+                    pref = f"Towar: {nazwa_z_bazy} " if nazwa_z_bazy else ""
+                    tekst_kodu = ft.Text(f"{pref}(EAN: {kod})", size=12, color=ft.Colors.BLUE_400)
                 else:
-                    nazwa_dopasowana = mapa_kod_nazwa.get(kod, "Pozycja zdefiniowana ręcznie")
+                    opis_towaru = nazwa_z_bazy if nazwa_z_bazy else "Pozycja zdefiniowana ręcznie"
                     if pewnosc == "ROZMYTE":
-                        tekst_kodu = ft.Text(f"Towar: {nazwa_dopasowana} (Kod: {kod}) [⚠️ Sprawdź]", size=12, color=ft.Colors.AMBER_300)
+                        tekst_kodu = ft.Text(f"Towar: {opis_towaru} (Kod: {kod}) [⚠️ Sprawdź]", size=12, color=ft.Colors.AMBER_300)
                     else:
-                        tekst_kodu = ft.Text(f"Towar: {nazwa_dopasowana} (Kod: {kod})", size=12, color=ft.Colors.GREEN_400)
+                        tekst_kodu = ft.Text(f"Towar: {opis_towaru} (Kod: {kod})", size=12, color=ft.Colors.GREEN_400)
             else:
-                tekst_kodu = ft.Text("BRAK KODU (Dotknij, aby wybrać lub zostawić F5)", size=12, color=ft.Colors.ORANGE_400, weight=ft.FontWeight.BOLD)
+                tekst_kodu = ft.Text("BRAK KODU (Dotknij, aby wybrać F5)", size=12, color=ft.Colors.ORANGE_400, weight=ft.FontWeight.BOLD)
 
             ilosc_str = poz.get("ilosc") or "0"
             jm_str = poz.get("jm") or "kg"
@@ -1047,7 +1227,6 @@ class UIManager:
             for ostrzezenie in poz.get("ostrzezenia", []):
                 kolumna_tekstow.append(ft.Text(f"⚠️ {ostrzezenie}", size=11, color=ft.Colors.AMBER_300))
 
-            # CAŁY WIERSZ JEST JEDNYM DUŻYM, KLIKALNYM KAFELKIEM
             self.lista_pozycji_weryfikacji.controls.append(
                 ft.Container(
                     key=f"poz_{i}",
@@ -1065,7 +1244,6 @@ class UIManager:
 
         self.page.update()
 
-        # Natychmiastowe przywrócenie dokładnej pozycji w pikselach
         if self._pozycja_scrolla_pz > 0:
             async def przywroc_scroll():
                 await asyncio.sleep(0.05)
