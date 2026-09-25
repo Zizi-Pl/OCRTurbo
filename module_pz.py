@@ -210,7 +210,7 @@ class ModulPZMixin:
         self.status_text_pz = ft.Text("Wybierz z galerii lub zrób zdjęcie dokumentu PZ.", size=13, color=ft.Colors.GREY_300, text_align=ft.TextAlign.CENTER)
 
         self.btn_foto_pz = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("Wybierz z galerii")], alignment=ft.MainAxisAlignment.CENTER),
+            content=ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY), ft.Text("ZDJĘCIA")], alignment=ft.MainAxisAlignment.CENTER),
             height=55, expand=True,
             style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
             on_click=lambda e: asyncio.create_task(self.otworz_galerie_pz())
