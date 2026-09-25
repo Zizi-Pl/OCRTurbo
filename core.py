@@ -13,7 +13,30 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from thefuzz import process, fuzz
 
 import config
+import re
 
+def normalizuj_nip(nip: str) -> str:
+    """Usuwa wszystko co nie jest cyfrą (PL, spacje, myślniki, kropki)."""
+    if not nip:
+        return ""
+    return re.sub(r"\D", "", str(nip))
+
+def sprawdz_poprawnosc_nip(nip: str) -> bool:
+    """Sprawdza sumę kontrolną polskiego NIP (odrzuca halucynacje AI)."""
+    nip_czysty = normalizuj_nip(nip)
+    if len(nip_czysty) != 10:
+        return False
+    
+    wagi = [6, 5, 7, 2, 3, 4, 5, 6, 7]
+    suma = sum(int(nip_czysty[i]) * wagi[i] for i in range(9))
+    suma_kontrolna = suma % 11
+    
+    # 10 nie może być cyfrą kontrolną w polskim NIP
+    if suma_kontrolna == 10:
+        return False
+        
+    return suma_kontrolna == int(nip_czysty[9])
+    
 # --- ŚCIEŻKI DO NOWYCH PLIKÓW STRUKTURY ---
 KARTOTEKA_FILE = os.path.join(config.KATALOG_DANYCH, "kartoteka_towarowa.json")
 ALIASY_FILE = os.path.join(config.KATALOG_DANYCH, "aliasy_ocr.json")
@@ -701,6 +724,7 @@ def filtruj_plik_graficzny(sciezka_zrodlowa: str, typ: str) -> str:
 
 
 # --- OCR I WALIDACJA DANYCH ---
+# --- OCR I WALIDACJA DANYCH ---
 def oczysc_odpowiedz_llm(surowe_dane) -> dict:
     if not isinstance(surowe_dane, dict):
         raise ValueError("Model zwrócił odpowiedź, która nie jest obiektem JSON.")
@@ -716,37 +740,53 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
     dane["nr_dok"] = _t(surowe_dane.get("nr", surowe_dane.get("nr_dok")), "faktura")
     dane["data"] = normalizuj_date(_t(surowe_dane.get("dt", surowe_dane.get("data")), datetime.now().strftime("%d.%m.%Y")))
 
+    # --- WYSTAWCA (Z WALIDACJĄ NIP) ---
     wyst = _d(surowe_dane.get("w", surowe_dane.get("wystawca")))
-    dane["wystawca"] = {"nazwa": _t(wyst.get("n", wyst.get("nazwa"))), "nip": _t(wyst.get("nip"))}
+    nip_wyst_raw = normalizuj_nip(_t(wyst.get("nip")))
+    nip_wyst_poprawny = nip_wyst_raw if sprawdz_poprawnosc_nip(nip_wyst_raw) else ""
+    dane["wystawca"] = {
+        "nazwa": _t(wyst.get("n", wyst.get("nazwa"))),
+        "nip": nip_wyst_poprawny
+    }
 
+    # --- ODBIORCA (Z WALIDACJĄ NIP) ---
     odb = _d(surowe_dane.get("o", surowe_dane.get("odbiorca")))
-    dane["odbiorca"] = {"nazwa": _t(odb.get("n", odb.get("nazwa"))), "nip": _t(odb.get("nip"))}
+    nip_odb_raw = normalizuj_nip(_t(odb.get("nip")))
+    nip_odb_poprawny = nip_odb_raw if sprawdz_poprawnosc_nip(nip_odb_raw) else ""
+    dane["odbiorca"] = {
+        "nazwa": _t(odb.get("n", odb.get("nazwa"))),
+        "nip": nip_odb_poprawny
+    }
 
     pozycje = []
     for p in _l(surowe_dane.get("p", surowe_dane.get("pozycje"))):
         if not isinstance(p, dict):
             continue
-        
-        vat_tekst = _t(p.get("v", p.get("vat")), "5")
-        vat_num = parsuj_vat(vat_tekst) or 5
+
+        jm_str = _t(p.get("j", p.get("jm")), "kg").lower()
         ilosc_num = parsuj_liczbe(p.get("i", p.get("ilosc"))) or 0.0
+
+        # Wymuszenie liczby całkowitej dla sztuk/opakowań
+        if jm_str in ("szt", "op", "szt.", "op."):
+            ilosc_str = str(int(round(ilosc_num))) if ilosc_num > 0 else _t(p.get("i", p.get("ilosc")))
+        else:
+            ilosc_str = str(ilosc_num) if ilosc_num > 0 else _t(p.get("i", p.get("ilosc")))
 
         cena_netto_str = _t(p.get("c", p.get("cena_netto")))
         wartosc_netto_str = _t(p.get("w", p.get("wartosc_netto")))
 
-        if not cena_netto_str and p.get("cena_brutto"):
-            c_brutto = parsuj_kwote(p.get("cena_brutto"))
-            c_netto = przelicz_brutto_na_netto(c_brutto, vat_num)
-            cena_netto_str = f"{c_netto:.4f}"
-            if not wartosc_netto_str:
-                wartosc_netto_str = f"{c_netto * ilosc_num:.2f}"
+        # Jeśli brak wartości netto, wyliczamy z ilości i ceny netto
+        if not wartosc_netto_str and cena_netto_str and ilosc_num > 0:
+            c_netto_num = parsuj_kwote(cena_netto_str)
+            if c_netto_num > 0:
+                wartosc_netto_str = f"{c_netto_num * ilosc_num:.2f}"
 
         pozycje.append({
             "nazwa": _t(p.get("n", p.get("nazwa")), "POZYCJA BEZ NAZWY"),
             "kod": _t(p.get("k", p.get("kod"))),
-            "vat": str(vat_num),
-            "jm": _t(p.get("j", p.get("jm")), "kg"),
-            "ilosc": str(ilosc_num) if ilosc_num > 0 else _t(p.get("i", p.get("ilosc"))),
+            "vat": "",  # VAT usunięty – PC-Market pobierze stawkę z kartoteki
+            "jm": jm_str,
+            "ilosc": ilosc_str,
             "cena_netto": cena_netto_str,
             "wartosc_netto": wartosc_netto_str,
         })
@@ -756,25 +796,13 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
 
     dane["pozycje"] = pozycje
     dane["suma_netto_dokument"] = _t(surowe_dane.get("sn", surowe_dane.get("suma_netto_dokument")))
-
-    stawki = []
-    for s in _l(surowe_dane.get("s", surowe_dane.get("stawki"))):
-        if isinstance(s, dict):
-            stawki.append({
-                "vat": _t(s.get("v", s.get("vat"))),
-                "suma_netto": _t(s.get("sn", s.get("suma_netto"))),
-                "suma_vat": _t(s.get("sv", s.get("suma_vat")))
-            })
-    dane["stawki"] = stawki
+    dane["stawki"] = []
     dane["do_zaplaty"] = _t(surowe_dane.get("dz", surowe_dane.get("do_zaplaty")))
     return dane
 
 
 def ostrzezenia_pozycji(poz: dict) -> list:
     ost = []
-    if parsuj_vat(poz.get("vat")) is None:
-        ost.append(f"VAT nierozpoznany ({poz.get('vat') or 'brak'}), do EDI trafi 5%")
-
     ilosc = parsuj_liczbe(poz.get("ilosc"))
     cena = parsuj_liczbe(poz.get("cena_netto"))
     wartosc = parsuj_liczbe(poz.get("wartosc_netto"))
@@ -792,15 +820,10 @@ def ostrzezenia_pozycji(poz: dict) -> list:
             ost.append(f"ilość × cena = {oczekiwana:.2f}, a wartość netto = {wartosc:.2f}")
     return ost
 
-
 def weryfikuj_sumy_netto(dane: dict) -> tuple[str, str]:
     pozycje = [p for p in (dane.get("pozycje") or []) if isinstance(p, dict)]
     suma_obliczona = sum(parsuj_kwote(p.get("wartosc_netto")) for p in pozycje)
     suma_odczytana = parsuj_kwote(dane.get("suma_netto_dokument"))
-
-    if suma_odczytana <= 0.0:
-        stawki = [s for s in (dane.get("stawki") or []) if isinstance(s, dict)]
-        suma_odczytana = sum(parsuj_kwote(s.get("suma_netto")) for s in stawki)
 
     if suma_odczytana <= 0.0:
         return "BRAK_DANYCH", f"Suma pozycji: {suma_obliczona:.2f} zł (brak sumy z dokumentu do porównania)"
@@ -814,13 +837,12 @@ def weryfikuj_sumy_netto(dane: dict) -> tuple[str, str]:
 
     return "OK", f"Zgodność sumy netto: {suma_obliczona:.2f} zł"
 
-
 def generuj_tekst_edi(dane: dict) -> str:
     pozycje = [p for p in (dane.get("pozycje") or []) if isinstance(p, dict)]
     wyst = dane.get("wystawca") or {}
 
     surowy_nip = str(wyst.get("nip") or "")
-    nip_czysty = re.sub(r"[^\d]", "", surowy_nip)
+    nip_czysty = normalizuj_nip(surowy_nip)
     nip_wyst = nip_czysty[-10:] if len(nip_czysty) >= 10 else nip_czysty
 
     linie = [
@@ -845,15 +867,14 @@ def generuj_tekst_edi(dane: dict) -> str:
             elif len(kod_glowny) == 6 and kod_glowny.isdigit():
                 kod_glowny = f"{kod_glowny}???????"
 
-        vat_val = parsuj_vat(poz.get("vat"))
-        vat = str(vat_val if vat_val is not None else 5)
         jm = str(poz.get("jm") or "kg").lower().strip()
         ilosc = formatuj_liczbe(parsuj_kwote(poz.get("ilosc")), 3, 3)
         cena = "n" + formatuj_liczbe(parsuj_kwote(poz.get("cena_netto")), 2, 4)
         wartosc = "n" + formatuj_liczbe(parsuj_kwote(poz.get("wartosc_netto")), 2, 4)
 
+        # Vat pozostaje pusty: Vat{} – PC-Market pobiera stawkę z kartoteki magazynowej
         linia = (
-            f"Linia:Nazwa{{{nazwa}}}Kod{{{kod_glowny}}}Vat{{{vat}}}Jm{{{jm}}}"
+            f"Linia:Nazwa{{{nazwa}}}Kod{{{kod_glowny}}}Vat{{}}Jm{{{jm}}}"
             f"Ilosc{{{ilosc}}}Cena{{{cena}}}Wartosc{{{wartosc}}}"
         )
         linie.append(linia)
