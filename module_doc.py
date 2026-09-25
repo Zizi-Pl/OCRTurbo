@@ -693,13 +693,18 @@ class ModulDocMixin:
             self.ui.dopisz_log(f"✂️ Zastosowano kadr: L={proc_lewo:.0f}%, T={proc_gora:.0f}%, R={proc_prawo:.0f}%, B={proc_dol:.0f}%", ft.Colors.GREY_400)
 
         prompt_dok = (
-            "Jesteś precyzyjnym systemem OCR do dokumentów biurowych, faktur i specyfikacji.\n"
-            "Przepisz CAŁY tekst widoczny na obrazie z zachowaniem układu:\n"
-            "1. Jeżeli na obrazie występuje tabela, zestawienie kolumnowe lub lista z cenami/ilościami, "
-            "zapisz ją BEZWZGLĘDNIE jako standardową tabelę Markdown (używając pionowych kresek '|' oraz nagłówków '|---|').\n"
-            "2. Zachowaj oryginalne akapity, tytuły i odstępy.\n"
-            "3. Nie dodawaj żadnych własnych komentarzy, wstępów ani znaczników ```markdown. Zwróć sam czysty tekst z tabelami."
-        )
+    "Rola: Działasz jako bezbłędny system transkrypcji OCR dokumentów handlowych i magazynowych.\n"
+    "Twoim zadaniem jest dokładne przepisanie widocznego tekstu z wiernym zachowaniem układu.\n\n"
+    "Zasady tabelaryczne:\n"
+    "1. Ścisła spójność kolumn w tabeli Markdown:\n"
+    "   - Każdy wiersz tabeli MUSI mieć dokładnie taką samą liczbę kolumn (tę samą liczbę pionowych kresek '|') co wiersz nagłówkowy!\n"
+    "   - Jeśli pierwsza kolumna kodu (np. 'CN/PKWiU' lub 'GTU') jest na dokumencie pusta, w każdym wierszu towarowym ZACZNIJ od pustej komórki: '| | Nazwa towaru | kg | ...'. Kategoryczny zakaz wklejania nazwy towaru w pierwszą kolumnę kodu!\n"
+    "   - Jednostka miary (np. 'kg', 'szt') musi ZAWSZE znajdować się w osobnej komórce '| kg |', nigdy sklejona z nazwą towaru.\n"
+    "2. Tekst i nagłówki:\n"
+    "   - Przepisz wiernie bloki danych sprzedawcy i nabywcy oraz podsumowania kwotowe bez zgadywania.\n"
+    "3. Format wyjściowy:\n"
+    "   - Zwróć wyłącznie czysty tekst i tabele. Zakaz bloków ```markdown, wstępów i komentarzy."
+)
 
         try:
             cfg = config.wczytaj_konfiguracje()
