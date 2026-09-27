@@ -5,4 +5,3 @@ Pillow
 thefuzz
 python-docx
 openpyxl
-pypdfium2
