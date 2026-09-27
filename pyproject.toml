@@ -4,13 +4,14 @@ version = "2.4.0"
 description = "Skaner PZ do EDI i inne"
 requires-python = ">=3.11"
 dependencies = [
-    "flet==0.85.3",
-    "flet-camera",
-    "httpx",
-    "pillow",
-    "thefuzz",
-    "python-docx",
-    "openpyxl",
+"flet==0.85.3",
+"flet-camera",
+"httpx",
+"pillow",
+"thefuzz",
+"python-docx",
+"openpyxl",
+"pypdfium2",
 ]
 
 [tool.flet]
