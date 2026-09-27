@@ -53,7 +53,7 @@ class PełnyEdytorObrazu(ft.Container):
             repeat=ft.ImageRepeat.NO_REPEAT
         )
 
-        # Kontener ze scrollem pionowym i poziomym (zastępuje InteractiveViewer)
+        # Kontener ze scrollem pionowym i poziomym (natywny gest na telefonie)
         self.kontener_scroll_wewnetrzny = ft.Row(
             controls=[self.img_view_zoom],
             alignment=ft.MainAxisAlignment.CENTER,
@@ -119,17 +119,69 @@ class PełnyEdytorObrazu(ft.Container):
             visible=False
         )
 
-        # 3. Przyciski górnej belki
-        self.btn_obrot_l = ft.IconButton(icon=ft.Icons.ROTATE_LEFT, icon_color=ft.Colors.WHITE, bgcolor=ft.Colors.GREY_900, tooltip="Obróć w lewo", on_click=lambda e: asyncio.create_task(self.obroc(-90)))
-        self.btn_obrot_r = ft.IconButton(icon=ft.Icons.ROTATE_RIGHT, icon_color=ft.Colors.WHITE, bgcolor=ft.Colors.GREY_900, tooltip="Obróć w prawo", on_click=lambda e: asyncio.create_task(self.obroc(90)))
-        self.btn_auto = ft.Button(content=ft.Row([ft.Icon(ft.Icons.AUTO_FIX_HIGH, size=16), ft.Text("Auto", weight=ft.FontWeight.BOLD)], spacing=4), style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, padding=10), on_click=lambda e: asyncio.create_task(self.zastosuj_profil_auto()))
-        self.btn_trybik = ft.IconButton(icon=ft.Icons.TUNE, icon_color=ft.Colors.WHITE, bgcolor=ft.Colors.GREY_900, tooltip="Suwaki obrazu", on_click=self.otworz_panel_suwakow)
+        # 3. Przyciski górnej belki - dopasowane rozmiarowo do wąskich ekranów
+        self.btn_obrot_l = ft.IconButton(
+            icon=ft.Icons.ROTATE_LEFT,
+            icon_size=20,
+            icon_color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.GREY_900,
+            tooltip="Obróć w lewo",
+            on_click=lambda e: asyncio.create_task(self.obroc(-90))
+        )
+        self.btn_obrot_r = ft.IconButton(
+            icon=ft.Icons.ROTATE_RIGHT,
+            icon_size=20,
+            icon_color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.GREY_900,
+            tooltip="Obróć w prawo",
+            on_click=lambda e: asyncio.create_task(self.obroc(90))
+        )
+        self.btn_auto = ft.Button(
+            content=ft.Row([
+                ft.Icon(ft.Icons.AUTO_FIX_HIGH, size=15),
+                ft.Text("Auto", size=12, weight=ft.FontWeight.BOLD)
+            ], spacing=2),
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.BLUE_900,
+                color=ft.Colors.WHITE,
+                padding=ft.Padding(8, 4, 8, 4)
+            ),
+            on_click=lambda e: asyncio.create_task(self.zastosuj_profil_auto())
+        )
+        self.btn_trybik = ft.IconButton(
+            icon=ft.Icons.TUNE,
+            icon_size=20,
+            icon_color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.GREY_900,
+            tooltip="Suwaki obrazu",
+            on_click=self.otworz_panel_suwakow
+        )
         
-        # Pasek kontroli powiększenia (Zoom)
-        self.lbl_zoom = ft.Text("1.0x", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_300)
-        self.btn_zoom_out = ft.IconButton(icon=ft.Icons.ZOOM_OUT, icon_size=18, icon_color=ft.Colors.WHITE, on_click=lambda e: self._zmien_zoom(-0.25))
-        self.btn_zoom_in = ft.IconButton(icon=ft.Icons.ZOOM_IN, icon_size=18, icon_color=ft.Colors.WHITE, on_click=lambda e: self._zmien_zoom(0.25))
-        self.pasek_zoom = ft.Row([self.btn_zoom_out, self.lbl_zoom, self.btn_zoom_in], spacing=0, alignment=ft.MainAxisAlignment.CENTER)
+        # Pasek kontroli powiększenia (Zoom) z klikalnym resetem
+        self.lbl_zoom = ft.Text("1.0x", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_300)
+        self.btn_reset_zoom = ft.Container(
+            content=self.lbl_zoom,
+            padding=ft.Padding(4, 4, 4, 4),
+            tooltip="Kliknij, aby zresetować do 1.0x",
+            on_click=self._resetuj_zoom
+        )
+        self.btn_zoom_out = ft.IconButton(
+            icon=ft.Icons.ZOOM_OUT,
+            icon_size=16,
+            icon_color=ft.Colors.WHITE,
+            on_click=lambda e: self._zmien_zoom(-0.25)
+        )
+        self.btn_zoom_in = ft.IconButton(
+            icon=ft.Icons.ZOOM_IN,
+            icon_size=16,
+            icon_color=ft.Colors.WHITE,
+            on_click=lambda e: self._zmien_zoom(0.25)
+        )
+        self.pasek_zoom = ft.Row(
+            [self.btn_zoom_out, self.btn_reset_zoom, self.btn_zoom_in],
+            spacing=0,
+            alignment=ft.MainAxisAlignment.CENTER
+        )
 
         self.belka_gorna = ft.Row([
             self.btn_obrot_l,
@@ -137,15 +189,15 @@ class PełnyEdytorObrazu(ft.Container):
             self.btn_auto,
             self.btn_trybik,
             self.btn_obrot_r
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=2)
 
         # 4. Przyciski dolnej belki
         self.btn_anuluj = ft.Button("Anuluj", style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_900, color=ft.Colors.WHITE), on_click=self._klik_anuluj, expand=True)
         self.btn_cofnij = ft.Button("Cofnij", disabled=True, style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE), on_click=lambda e: self._cofnij_krok(), expand=True)
-        self.btn_kadruj = ft.Button(content=ft.Row([ft.Icon(ft.Icons.CROP, size=16), ft.Text("Kadruj")], alignment=ft.MainAxisAlignment.CENTER, spacing=4), style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, color=ft.Colors.WHITE), on_click=self._przepnij_tryb_kadrowania, expand=True)
-        self.btn_wyslij = ft.Button(content=ft.Row([ft.Icon(ft.Icons.CHECK, size=18), ft.Text("Wyślij", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER, spacing=4), style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE), on_click=lambda e: asyncio.create_task(self._klik_wyslij_async()), expand=True)
+        self.btn_kadruj = ft.Button(content=ft.Row([ft.Icon(ft.Icons.CROP, size=15), ft.Text("Kadruj", size=12)], alignment=ft.MainAxisAlignment.CENTER, spacing=3), style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, color=ft.Colors.WHITE), on_click=self._przepnij_tryb_kadrowania, expand=True)
+        self.btn_wyslij = ft.Button(content=ft.Row([ft.Icon(ft.Icons.CHECK, size=16), ft.Text("Wyślij", size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER, spacing=3), style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE), on_click=lambda e: asyncio.create_task(self._klik_wyslij_async()), expand=True)
         
-        self.belka_dolna = ft.Row([self.btn_anuluj, self.btn_cofnij, self.btn_kadruj, self.btn_wyslij], spacing=6)
+        self.belka_dolna = ft.Row([self.btn_anuluj, self.btn_cofnij, self.btn_kadruj, self.btn_wyslij], spacing=4)
 
         self._zbuduj_okno_suwakow()
 
@@ -155,10 +207,11 @@ class PełnyEdytorObrazu(ft.Container):
             expand=True
         )
 
+        # Bezpieczne marginesy uwzględniające belkę systemową Androida na dole (32 px)
         self.content = ft.Column([
-            ft.Container(content=self.belka_gorna, padding=ft.Padding(8, 8, 8, 4)),
+            ft.Container(content=self.belka_gorna, padding=ft.Padding(4, 6, 4, 4)),
             self.obszar_roboczy,
-            ft.Container(content=self.belka_dolna, padding=ft.Padding(8, 4, 8, 12))
+            ft.Container(content=self.belka_dolna, padding=ft.Padding(6, 4, 6, 32))
         ], spacing=0)
 
     def _zbuduj_okno_suwakow(self):
@@ -199,6 +252,15 @@ class PełnyEdytorObrazu(ft.Container):
             self.dlg_suwaki.open = True
             self.app_page.update()
 
+    def _resetuj_zoom(self, e=None):
+        """Wymusza powrót powiększenia do 1.0x po kliknięciu etykiety między lupkami."""
+        if self.skala_zoom != 1.0:
+            self.skala_zoom = 1.0
+            self.lbl_zoom.value = "1.0x"
+            self.img_view_zoom.width = round(self.SZER_KADRU)
+            self.img_view_zoom.height = round(self.WYS_KADRU)
+            self.app_page.update()
+
     def _zmien_zoom(self, delta: float):
         nowa_skala = round(max(1.0, min(4.0, self.skala_zoom + delta)), 2)
         if nowa_skala != self.skala_zoom:
@@ -217,8 +279,8 @@ class PełnyEdytorObrazu(ft.Container):
         p_h = getattr(self.app_page, "height", None) or 700.0
 
         self.height = max(500.0, float(p_h) - 32.0)
-        max_w = max(240.0, float(p_w) - 32.0)
-        max_h = max(300.0, float(p_h) - 180.0)
+        max_w = max(240.0, float(p_w) - 24.0)
+        max_h = max(280.0, float(p_h) - 210.0)
 
         proporcja = w_orig / max(1, h_orig)
         if (max_w / max_h) > proporcja:
@@ -384,7 +446,7 @@ class PełnyEdytorObrazu(ft.Container):
             self.pasek_zoom.visible = False
             self.obszar_roboczy.content = self.warstwa_kadrowania
             self.warstwa_kadrowania.visible = True
-            self.btn_kadruj.content.controls[1].value = "Zatwierdź kadr"
+            self.btn_kadruj.content.controls[1].value = "Zatwierdź"
             self.btn_kadruj.style.bgcolor = ft.Colors.BLUE_800
         else:
             self.pasek_zoom.visible = True
