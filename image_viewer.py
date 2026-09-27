@@ -239,9 +239,9 @@ class PełnyEdytorObrazu(ft.Container):
             expand=True
         )
 
-        # Bezpieczny margines od dołu (48 px) unoszący belkę ponad systemowy pasek Androida
+        # Górny margines 38 px (schodzi pod pasek stanu Androida) i dolny 48 px (nad przyciski nawigacji)
         self.content = ft.Column([
-            ft.Container(content=self.belka_gorna, padding=ft.Padding(4, 6, 4, 4)),
+            ft.Container(content=self.belka_gorna, padding=ft.Padding(4, 38, 4, 4)),
             self.obszar_roboczy,
             ft.Container(content=self.belka_dolna, padding=ft.Padding(8, 4, 8, 48))
         ], spacing=0)
@@ -312,7 +312,7 @@ class PełnyEdytorObrazu(ft.Container):
 
         self.height = max(500.0, float(p_h) - 32.0)
         max_w = max(240.0, float(p_w) - 24.0)
-        max_h = max(260.0, float(p_h) - 225.0)
+        max_h = max(240.0, float(p_h) - 255.0)
 
         proporcja = w_orig / max(1, h_orig)
         if (max_w / max_h) > proporcja:
@@ -459,7 +459,7 @@ class PełnyEdytorObrazu(ft.Container):
         if len(self.historia_pelna) > 1:
             self.historia_pelna.pop()
             poprzednia = self.historia_pelna[-1]
-            self.sciezka_pelna_bazowa = poprzednia
+            self.sciezka_pelna_bazowa =图标_prev = poprzednia
             self.sciezka_pelna_aktualna = poprzednia
 
             baza_podgladu = image_processor.przygotuj_kopie_podgladowa(poprzednia)
