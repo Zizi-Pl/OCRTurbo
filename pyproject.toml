@@ -14,9 +14,9 @@ dependencies = [
 ]
 
 [tool.flet]
-org = "com.ocrlmm"
-product = "ocrLmm"
-company = "ocrLmm"
+org = "com.ocrturbo"
+product = "OCRTurbo"
+company = "OCRTurbo"
 copyright = "Copyright (C) 2026"
 
 [tool.flet.app]
