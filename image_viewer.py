@@ -119,7 +119,7 @@ class PełnyEdytorObrazu(ft.Container):
             visible=False
         )
 
-        # 3. Przyciski górnej belki - dopasowane rozmiarowo do wąskich ekranów
+        # 3. Przyciski górnej belki
         self.btn_obrot_l = ft.IconButton(
             icon=ft.Icons.ROTATE_LEFT,
             icon_size=20,
@@ -191,13 +191,45 @@ class PełnyEdytorObrazu(ft.Container):
             self.btn_obrot_r
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=2)
 
-        # 4. Przyciski dolnej belki
-        self.btn_anuluj = ft.Button("Anuluj", style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_900, color=ft.Colors.WHITE), on_click=self._klik_anuluj, expand=True)
-        self.btn_cofnij = ft.Button("Cofnij", disabled=True, style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_800, color=ft.Colors.WHITE), on_click=lambda e: self._cofnij_krok(), expand=True)
-        self.btn_kadruj = ft.Button(content=ft.Row([ft.Icon(ft.Icons.CROP, size=15), ft.Text("Kadruj", size=12)], alignment=ft.MainAxisAlignment.CENTER, spacing=3), style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_800, color=ft.Colors.WHITE), on_click=self._przepnij_tryb_kadrowania, expand=True)
-        self.btn_wyslij = ft.Button(content=ft.Row([ft.Icon(ft.Icons.CHECK, size=16), ft.Text("Wyślij", size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER, spacing=3), style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE), on_click=lambda e: asyncio.create_task(self._klik_wyslij_async()), expand=True)
+        # 4. Przyciski dolnej belki (ikony z dużym polem dotyku)
+        self.btn_anuluj = ft.IconButton(
+            icon=ft.Icons.CLOSE,
+            icon_size=22,
+            icon_color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.GREY_900,
+            tooltip="Anuluj",
+            on_click=self._klik_anuluj
+        )
+        self.btn_cofnij = ft.IconButton(
+            icon=ft.Icons.UNDO,
+            icon_size=22,
+            icon_color=ft.Colors.WHITE38,
+            bgcolor=ft.Colors.GREY_900,
+            disabled=True,
+            tooltip="Cofnij zmianę",
+            on_click=lambda e: self._cofnij_krok()
+        )
+        self.btn_kadruj = ft.IconButton(
+            icon=ft.Icons.CROP,
+            icon_size=22,
+            icon_color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.BLUE_GREY_800,
+            tooltip="Kadruj / Zatwierdź",
+            on_click=self._przepnij_tryb_kadrowania
+        )
+        self.btn_wyslij = ft.IconButton(
+            icon=ft.Icons.SEND_ROUNDED,
+            icon_size=24,
+            icon_color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.GREEN_800,
+            tooltip="Wyślij do OCR",
+            on_click=lambda e: asyncio.create_task(self._klik_wyslij_async())
+        )
         
-        self.belka_dolna = ft.Row([self.btn_anuluj, self.btn_cofnij, self.btn_kadruj, self.btn_wyslij], spacing=4)
+        self.belka_dolna = ft.Row(
+            [self.btn_anuluj, self.btn_cofnij, self.btn_kadruj, self.btn_wyslij],
+            alignment=ft.MainAxisAlignment.SPACE_EVENLY
+        )
 
         self._zbuduj_okno_suwakow()
 
@@ -207,11 +239,11 @@ class PełnyEdytorObrazu(ft.Container):
             expand=True
         )
 
-        # Bezpieczne marginesy uwzględniające belkę systemową Androida na dole (32 px)
+        # Bezpieczny margines od dołu (48 px) unoszący belkę ponad systemowy pasek Androida
         self.content = ft.Column([
             ft.Container(content=self.belka_gorna, padding=ft.Padding(4, 6, 4, 4)),
             self.obszar_roboczy,
-            ft.Container(content=self.belka_dolna, padding=ft.Padding(6, 4, 6, 32))
+            ft.Container(content=self.belka_dolna, padding=ft.Padding(8, 4, 8, 48))
         ], spacing=0)
 
     def _zbuduj_okno_suwakow(self):
@@ -280,7 +312,7 @@ class PełnyEdytorObrazu(ft.Container):
 
         self.height = max(500.0, float(p_h) - 32.0)
         max_w = max(240.0, float(p_w) - 24.0)
-        max_h = max(280.0, float(p_h) - 210.0)
+        max_h = max(260.0, float(p_h) - 225.0)
 
         proporcja = w_orig / max(1, h_orig)
         if (max_w / max_h) > proporcja:
@@ -338,6 +370,7 @@ class PełnyEdytorObrazu(ft.Container):
         self.pasek_zoom.visible = True
 
         self.btn_cofnij.disabled = True
+        self.btn_cofnij.icon_color = ft.Colors.WHITE38
         self.tryb_kadrowania = False
         self.obszar_roboczy.content = self.obszar_podgladu_scroll
 
@@ -404,6 +437,7 @@ class PełnyEdytorObrazu(ft.Container):
 
         self.historia_pelna.append(self.sciezka_pelna_aktualna)
         self.btn_cofnij.disabled = False
+        self.btn_cofnij.icon_color = ft.Colors.WHITE
 
         loop = asyncio.get_running_loop()
         nowa_pelna = await loop.run_in_executor(None, image_processor.obroc_obraz, self.sciezka_pelna_aktualna, kat)
@@ -438,6 +472,7 @@ class PełnyEdytorObrazu(ft.Container):
             self.dostosuj_do_wymiarow_ekranu()
             self._resetuj_suwaki(None)
             self.btn_cofnij.disabled = (len(self.historia_pelna) <= 1)
+            self.btn_cofnij.icon_color = ft.Colors.WHITE if not self.btn_cofnij.disabled else ft.Colors.WHITE38
             self._odswiez_obraz_na_ekranie()
 
     def _przepnij_tryb_kadrowania(self, e=None):
@@ -446,14 +481,14 @@ class PełnyEdytorObrazu(ft.Container):
             self.pasek_zoom.visible = False
             self.obszar_roboczy.content = self.warstwa_kadrowania
             self.warstwa_kadrowania.visible = True
-            self.btn_kadruj.content.controls[1].value = "Zatwierdź"
-            self.btn_kadruj.style.bgcolor = ft.Colors.BLUE_800
+            self.btn_kadruj.icon = ft.Icons.CHECK
+            self.btn_kadruj.bgcolor = ft.Colors.BLUE_800
         else:
             self.pasek_zoom.visible = True
             self.obszar_roboczy.content = self.obszar_podgladu_scroll
             self.warstwa_kadrowania.visible = False
-            self.btn_kadruj.content.controls[1].value = "Kadruj"
-            self.btn_kadruj.style.bgcolor = ft.Colors.BLUE_GREY_800
+            self.btn_kadruj.icon = ft.Icons.CROP
+            self.btn_kadruj.bgcolor = ft.Colors.BLUE_GREY_800
             asyncio.create_task(self._wykonaj_ciecie_kadru())
 
         self.app_page.update()
@@ -467,6 +502,7 @@ class PełnyEdytorObrazu(ft.Container):
         if proc_l > 0.5 or proc_t > 0.5 or proc_r > 0.5 or proc_b > 0.5:
             self.historia_pelna.append(self.sciezka_pelna_aktualna)
             self.btn_cofnij.disabled = False
+            self.btn_cofnij.icon_color = ft.Colors.WHITE
 
             loop = asyncio.get_running_loop()
             nowa_pelna = await loop.run_in_executor(
