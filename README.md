@@ -1,8 +1,9 @@
 # ocrTurbo 📱📄
 
-[![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](#funkcjonalności)
+[![Wersja: 2.4.0](https://img.shields.io/badge/Wersja-2.4.0-blue.svg)](#nowości-w-wersji-240)
+[![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](#budowanie-wersji-android-apk)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](#budowanie-wersji-desktopowej-windows)
-[![Framework: Flet](https://img.shields.io/badge/Framework-Flet-00BCD4?logo=flutter&logoColor=white)](#architektura-interfejsu)
+[![Framework: Flet](https://img.shields.io/badge/Framework-Flet%200.85.3-00BCD4?logo=flutter&logoColor=white)](#architektura-interfejsu)
 [![AI: Google Gemini / LM Studio](https://img.shields.io/badge/AI-Gemini%20%7C%20LM%20Studio-FF6F00?logo=google&logoColor=white)](#silnik-ocr-i-sztuczna-inteligencja)
 [![Integration: PC-Market EDI](https://img.shields.io/badge/Integration-PC--Market%20EDI-4CAF50)](#integracja-z-pc-market)
 
@@ -11,14 +12,26 @@ Aplikacja mobilno-desktopowa przeznaczona do automatycznego odczytu faktur dosta
 ---
 
 ## 📑 Spis treści
-- [Główne moduły](#główne-moduły)
-- [Architektura interfejsu](#architektura-interfejsu)
-- [Silnik OCR i sztuczna inteligencja](#silnik-ocr-i-sztuczna-inteligencja)
-- [Integracja z PC-Market](#integracja-z-pc-market)
-- [Budowanie aplikacji](#budowanie-aplikacji)
+- [Nowości w wersji 2.4.0](#-nowości-w-wersji-240)
+- [Główne moduły](#-główne-moduły)
+- [Architektura projektu i opis plików](#-architektura-projektu-i-opis-plików)
+- [Silnik OCR i sztuczna inteligencja](#-silnik-ocr-i-sztuczna-inteligencja)
+- [Integracja z PC-Market](#-integracja-z-pc-market)
+- [Wymagania środowiskowe i zależności](#-wymagania-środowiskowe-i-użyte-biblioteki)
+- [Budowanie aplikacji](#-budowanie-aplikacji)
   - [Wersja Android (APK)](#budowanie-wersji-android-apk)
   - [Wersja Desktopowa (Windows)](#budowanie-wersji-desktopowej-windows)
-- [Wymagania i uruchomienie](#wymagania-i-uruchomienie)
+
+---
+
+## 🌟 Nowości w wersji 2.4.0
+
+- **Nowy edytor podglądu (`PełnyEdytorObrazu`):** Całkowita rezygnacja z niestabilnej kontrolki `InteractiveViewer` na rzecz natywnego, dwuosiowego przewijania (`ft.Row` + `ft.Column` ze scrollem `AUTO`). Pełna płynność na Windows 11 i urządzeniach z Androidem.
+- **Dopasowanie do pasków systemowych Androida:** Zwiększony dolny margines chroniący przyciski przed przysłonięciem przez systemowy pasek nawigacyjny z trzema przyciskami.
+- **Dolna belka z ikonami:** Zastąpienie szerokich przycisków tekstowych poręcznymi ikonami dotykowymi (Anuluj, Cofnij, Kadruj, Wyślij), co zapobiega łamaniu wierszy na wąskich ekranach.
+- **Szybki reset zoomu:** Wskaźnik skali pomiędzy lupkami jest teraz klikalny – jedno dotknięcie przywraca natychmiast zoom bazowy `1.0x`.
+- **Precyzyjne czyszczenie plików roboczych:** Rozszerzony mechanizm sprzątania katalogu roboczego o pliki eksportu Worda (`.docx`), Excela (`.xlsx`), unikalne pliki stemplowane czasem `preview_editor_*.jpg` oraz pliki transakcyjne `*.tmp`.
+- **Czysta kompilacja mobilna:** Usunięcie zależności wymagających kompilatorów C/C++ (`python-Levenshtein`, `pypdfium2`), co zapewnia bezproblemowe budowanie paczek APK przez GitHub Actions.
 
 ---
 
@@ -32,66 +45,33 @@ Aplikacja mobilno-desktopowa przeznaczona do automatycznego odczytu faktur dosta
 
 ### 2. Odczyt Dokumentu (Układ 1:1)
 - Przepisywanie pism, specyfikacji i umów z zachowaniem oryginalnego układu przestrzennego, wcięć oraz kolumn.
-- Wbudowany edytor z opcją kopiowania do schowka oraz eksportu do pliku tekstowego `.txt`.
+- Wbudowany edytor z opcją kopiowania do schowka oraz eksportu do formatów `.txt`, `.docx` (Word) i `.xlsx` (Excel).
 
 ### 3. Szybki Skaner Graficzny (Offline)
 - Płynne kadrowanie dotykowe z możliwością przesuwania całej strefy roboczej środkiem lub chwytania za narożniki.
 - Filtry przetwarzania obrazu: **B&W (High Contrast)**, **Skala szarości**, **Wyostrzanie**.
-- Pełna historia operacji z możliwością cofania kroków (`Undo`) oraz odwracania filtrów.
+- Pełna historia operacji z możliwością cofania kroków (`Undo`) oraz ponawiania filtrów.
 - Niezależny, przewijalny panel narzędziowy zoptymalizowany pod ekrany dotykowe.
 
 ---
 
-## 🛠 Architektura interfejsu
+## 📂 Architektura projektu i opis plików
 
-- **Silnik UI:** [Flet](https://flet.dev/) (oparty na Google Flutter).
-- **Zarządzanie gestami:** Zoptymalizowana strefa dotykowa (`GestureDetector`) z wyłączonym nadrzędnym scrollem ekranu w widoku skanera, eliminująca opóźnienia i konflikty gestów na Androidzie.
-- **RWD (Responsive Web Design):** Okna dialogowe weryfikacji i edycji pozycji dostosowane do pełnej szerokości ekranów smartfonów (`ft.Padding`, elastyczne kontenery).
+Struktura projektu została podzielona modularnie, rozdzielając logikę przetwarzania danych, interfejs graficzny i komunikację z modelami AI:
 
----
-
-## 🧠 Silnik OCR i sztuczna inteligencja
-
-Aplikacja wspiera hybrydowe przetwarzanie obrazu:
-- **Chmura:** Google Gemini API (`gemini-2.5-flash`) z wymuszonym schematem JSON.
-- **Lokalnie (Offline/LAN):** Serwer [LM Studio](https://lmstudio.ai/) z modelami wizyjnymi (np. Qwen-VL) i obsługą automatycznego wybudzania stacji roboczej przez **Wake-on-LAN (WoL)**.
-
----
-
-## 💾 Integracja z PC-Market
-
-- Eksport gotowych dokumentów magazynowych do formatu tekstowego **EDI (windows-1250)** akceptowanego przez PC-Market.
-- Moduł wyszukiwarki towarów w locie przeszukujący pliki bazy PC-Market.
-- Zapis powiązań nazw dostawcy z wewnętrznymi indeksami magazynu.
-
----
-
-## 📦 Budowanie aplikacji
-
-### Budowanie wersji Android (APK)
-Do zachowania możliwości aktualizacji zainstalowanej aplikacji bez konieczności odinstalowywania wymagane jest stałe użycie tego samego pliku keystore oraz podbijanie numeru kompilacji:
-
-## 📦 Wymagania środowiskowe i użyte biblioteki
-
-Do uruchomienia i kompilacji projektu wymagane jest środowisko **Python >= 3.11**.
-
-### 📚 Kluczowe zależności i ich zastosowanie w aplikacji
-
-| Biblioteka | Wersja | Rola w projekcie |
-| :--- | :--- | :--- |
-| **`flet`** | `0.85.3` | Główny silnik interfejsu graficznego (UI) oparty na silniku Flutter. |
-| **`flet-camera`** | najnowsza | Natywna obsługa modułu aparatu fotograficznego na urządzeniach mobilnych (Android). |
-| **`httpx`** | najnowsza | Asynchroniczny klient HTTP do zapytań API (Google Gemini oraz lokalne LM Studio). |
-| **`pillow`** (PIL) | najnowsza | Kompresja, obracanie, nakładanie filtrów kontrastowych i precyzyjne kadrowanie pikseli. |
-| **`python-docx`** | najnowsza | Eksport rozpoznanego tekstu i układów tabelarycznych do formatu Microsoft Word (`.docx`). |
-| **`openpyxl`** | najnowsza | Generowanie i formatowanie arkuszy kalkulacyjnych Microsoft Excel (`.xlsx`) z danymi liczbowymi. |
-| **`thefuzz`** | najnowsza | Algorytmy wyszukiwania rozmytego (fuzzy matching) do automatycznego łączenia nazw towarów z bazą PC-Market. |
-
----
-
-### ⚙️ Instalacja środowiska deweloperskiego
-
-1. Sklonuj repozytorium na dysk lokalny:
-```bash
-git clone https://github.com/Zizi-Pl/OCRTurbo.git
-cd OCRTurbo
+```text
+OCRTurbo/
+│
+├── main.py                 # Punkt wejścia aplikacji, konfiguracja okna i cyklu życia
+├── config.py               # Konfiguracja, ścieżki systemowe, profile i persystencja JSON
+├── core.py                 # Silnik biznesowy, parsowanie EDI, fuzzy matching, czyszczenie
+├── image_processor.py      # Przetwarzanie obrazu w Pillow (obroty, filtry, kadrowanie)
+├── image_viewer.py         # Pełnoekranowy edytor podglądu, zoom, kadrowanie i maski
+├── converter.py            # Konwersja formatów wejściowych (schowek, PDF, zrzuty)
+├── ai_service.py           # Integracja z Google Gemini API oraz lokalnym LM Studio
+│
+├── views.py                # Menedżer widoków aplikacji (ViewsManager - nawigacja)
+├── ui.py                   # Menedżer okien dialogowych, powiadomień i pickerów (UIManager)
+├── module_pz.py            # Logika i interfejs modułu Faktura / Przyjęcie Zewnętrzne (PZ)
+├── module_doc.py           # Logika i interfejs modułu Dokument (układ 1:1, Word, Excel)
+└── module_scan.py          # Logika i interfejs modułu Szybki Skaner
