@@ -1,6 +1,6 @@
 [project]
 name = "OCRTurbo"
-version = "2.3.0"
+version = "2.4.0"
 description = "Skaner PZ do EDI i inne"
 requires-python = ">=3.11"
 dependencies = [
