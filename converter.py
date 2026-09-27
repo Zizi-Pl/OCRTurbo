@@ -1,5 +1,5 @@
-import os
 import io
+import os
 from datetime import datetime
 from PIL import Image, ImageOps
 
@@ -56,59 +56,93 @@ def konwertuj_obraz_do_rgb_jpeg(sciezka_lub_obraz, prefiks: str = "img_in") -> s
 
 def konwertuj_pdf_do_jpg(sciezka_pdf: str, numer_strony: int = 0, dpi: int = 200) -> list[str]:
     """
-    Renderuje strony dokumentu PDF do plików graficznych JPEG.
-    Zwraca listę ścieżek wygenerowanych obrazów.
-    Domyślnie przetwarza wskazaną stronę lub wszystkie, jeśli numer_strony < 0.
+    Wyciąga lub renderuje strony dokumentu PDF do plików graficznych JPEG.
+    W pierwszej kolejności używa czysto pythonowej biblioteki 'pypdf' (działa na Androidzie).
+    Jeśli pypdf nie jest dostępny, próbuje pypdfium2 lub pymupdf (fitz).
     """
     if not os.path.exists(sciezka_pdf):
         raise FileNotFoundError(f"Plik PDF nie istnieje: {sciezka_pdf}")
 
     wygenerowane_pliki = []
 
+    # 1. Metoda główna dla Androida: pypdf (czysty Python bez bibliotek C++)
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(sciezka_pdf)
+        liczba_stron = len(reader.pages)
+        strony_do_obrobki = range(liczba_stron) if numer_strony < 0 else [numer_strony]
+
+        for nr in strony_do_obrobki:
+            if nr >= liczba_stron:
+                break
+            page = reader.pages[nr]
+
+            # Wyciągamy obrazy osadzone na stronie (skany faktur)
+            if page.images:
+                for img_idx, img_obj in enumerate(page.images):
+                    try:
+                        pil_img = Image.open(io.BytesIO(img_obj.data))
+                        sciezka_zapisu = konwertuj_obraz_do_rgb_jpeg(
+                            pil_img, prefiks=f"img_pdf_p{nr+1}_{img_idx+1}"
+                        )
+                        wygenerowane_pliki.append(sciezka_zapisu)
+                    except Exception as err:
+                        print(f"Błąd odczytu grafiki ze strony {nr+1}: {err}")
+
+        if wygenerowane_pliki:
+            return wygenerowane_pliki
+    except ImportError:
+        pass
+
+    # 2. Fallback na pypdfium2 (np. na komputerze stacjonarnym)
     try:
         import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(sciezka_pdf)
+        liczba_stron = len(pdf)
+        strony_do_obrobki = range(liczba_stron) if numer_strony < 0 else [numer_strony]
+        scale = dpi / 72.0
+
+        for nr in strony_do_obrobki:
+            if nr >= liczba_stron:
+                break
+            page = pdf[nr]
+            pil_image = page.render(scale=scale).to_pil()
+            sciezka_zapisu = konwertuj_obraz_do_rgb_jpeg(pil_image, prefiks=f"img_pdf_p{nr+1}")
+            wygenerowane_pliki.append(sciezka_zapisu)
+
+        pdf.close()
+        return wygenerowane_pliki
     except ImportError:
-        # Fallback na bibliotekę pymupdf/fitz, jeśli jest w środowisku
-        try:
-            import fitz
-            doc = fitz.open(sciezka_pdf)
-            strony = range(len(doc)) if numer_strony < 0 else [numer_strony]
-            zoom = dpi / 72.0
-            mat = fitz.Matrix(zoom, zoom)
+        pass
 
-            for idx in strony:
-                if idx >= len(doc):
-                    break
-                page = doc[idx]
-                pix = page.get_pixmap(matrix=mat, alpha=False)
-                sciezka_wyjsciowa = _generuj_sciezke_wyjsciowa(prefiks=f"img_pdf_p{idx+1}")
-                pix.save(sciezka_wyjsciowa)
-                wygenerowane_pliki.append(sciezka_wyjsciowa)
-            doc.close()
-            return wygenerowane_pliki
-        except ImportError:
-            raise RuntimeError(
-                "Do obsługi plików PDF wymagana jest biblioteka 'pypdfium2' lub 'pymupdf'. "
-                "Zainstaluj ją poleceniem: pip install pypdfium2"
-            )
+    # 3. Fallback na pymupdf/fitz
+    try:
+        import fitz
 
-    # Renderowanie przez pypdfium2
-    pdf = pdfium.PdfDocument(sciezka_pdf)
-    liczba_stron = len(pdf)
+        doc = fitz.open(sciezka_pdf)
+        strony = range(len(doc)) if numer_strony < 0 else [numer_strony]
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
 
-    strony_do_obrobki = range(liczba_stron) if numer_strony < 0 else [numer_strony]
+        for idx in strony:
+            if idx >= len(doc):
+                break
+            page = doc[idx]
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            sciezka_wyjsciowa = _generuj_sciezke_wyjsciowa(prefiks=f"img_pdf_p{idx+1}")
+            pix.save(sciezka_wyjsciowa)
+            wygenerowane_pliki.append(sciezka_wyjsciowa)
+        doc.close()
+        return wygenerowane_pliki
+    except ImportError:
+        pass
 
-    scale = dpi / 72.0
-    for nr in strony_do_obrobki:
-        if nr >= liczba_stron:
-            break
-        page = pdf[nr]
-        pil_image = page.render(scale=scale).to_pil()
-        sciezka_zapisu = konwertuj_obraz_do_rgb_jpeg(pil_image, prefiks=f"img_pdf_p{nr+1}")
-        wygenerowane_pliki.append(sciezka_zapisu)
-
-    pdf.close()
-    return wygenerowane_pliki
+    raise RuntimeError(
+        "Do obsługi plików PDF wymagana jest biblioteka 'pypdf' (lub 'pypdfium2' / 'pymupdf'). "
+        "Upewnij się, że 'pypdf' znajduje się w pliku pyproject.toml."
+    )
 
 
 def standaryzuj_plik_wejsciowy(sciezka_pliku: str) -> str:
