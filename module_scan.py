@@ -85,16 +85,19 @@ class ModulScanMixin:
             icon=ft.Icons.TERMINAL, tooltip="Konsola zdarzeń (logi)", on_click=self.ui.otworz_konsole
         )
 
-        pasek_tytulu_skan = ft.Row([
-            ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, tooltip="Menu Główne", on_click=lambda e: asyncio.create_task(self.przelacz_widok("menu"))),
-                ft.Column([
-                    ft.Text("ocrLmm Mobile", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_300),
-                    ft.Text("Skaner Graficzny (Szybki skan offline)", size=11, color=ft.Colors.GREY_400)
-                ], spacing=1)
-            ]),
-            self.btn_konsola_skan
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        pasek_tytulu_skan = ft.Container(
+            content=ft.Row([
+                ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_BACK, tooltip="Menu Główne", on_click=lambda e: asyncio.create_task(self.przelacz_widok("menu"))),
+                    ft.Column([
+                        ft.Text("ocrLmm Mobile", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.DEEP_ORANGE_400),
+                        ft.Text("Szybki Skaner Graficzny", size=11, color=ft.Colors.GREY_400)
+                    ], spacing=1)
+                ]),
+                self.btn_konsola_skan
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            padding=ft.Padding(4, 38, 4, 0)
+        )
 
         self.kolumna_glowna_skan = ft.Column([
             pasek_tytulu_skan,

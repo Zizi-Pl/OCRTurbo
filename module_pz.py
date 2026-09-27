@@ -89,18 +89,21 @@ class ModulPZMixin:
         self.btn_baza_ikona = ft.IconButton(icon=ft.Icons.STORAGE, tooltip="Baza i powiązania towarów", on_click=self.ui.otworz_okno_bazy_recznej)
         self.btn_konsola = ft.IconButton(icon=ft.Icons.TERMINAL, tooltip="Konsola zdarzeń (logi)", on_click=self.ui.otworz_konsole)
 
-        pasek_tytulu_pz = ft.Row(
-            [
-                ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK, tooltip="Menu Główne", on_click=lambda e: asyncio.create_task(self.przelacz_widok("menu"))),
-                    ft.Column([
-                        ft.Text("ocrLmm Mobile", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
-                        ft.Text("Skaner PZ (PC-Market)", size=11, color=ft.Colors.GREY_400)
-                    ], spacing=1)
-                ], spacing=4, expand=True),
-                ft.Row([self.btn_baza_ikona, self.btn_konsola], spacing=0)
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+        naglowek_pz = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Row([
+                        ft.IconButton(ft.Icons.ARROW_BACK, tooltip="Menu Główne", on_click=lambda e: asyncio.create_task(self.przelacz_widok("menu"))),
+                        ft.Column([
+                            ft.Text("ocrLmm Mobile", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
+                            ft.Text("Skaner PZ (PC-Market)", size=11, color=ft.Colors.GREY_400)
+                        ], spacing=1)
+                    ], spacing=4, expand=True),
+                    ft.Row([self.btn_baza_ikona, self.btn_konsola], spacing=0)
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+            ),
+            padding=ft.Padding(4, 38, 4, 0)
         )
 
         self.dlg_potwierdz_czyszczenie = ft.AlertDialog(
@@ -139,20 +142,25 @@ class ModulPZMixin:
         )
 
         self.kolumna_glowna_pz = ft.Column([
-            pasek_tytulu_pz,
-            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-            self.wiersz_wyboru_zdjecia_pz,
-            self.pasek_postepu_pz,
-            self.status_text_pz,
-            self.kontener_podgladu_pz,
-            self.btn_otworz_kadrowanie,
-            self.btn_akcja_analiza_pz,
-            self.btn_wroc_weryfikacja_pz,
-            self.btn_udostepnij_pz,
-            self.btn_usun_zdjecie_pz,
-            ft.Divider(height=16, color=ft.Colors.GREY_800),
-            ft.Row([btn_wyczysc_katalog])
-        ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10)
+            naglowek_pz,
+            ft.Container(
+                content=ft.Column([
+                    ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+                    self.wiersz_wyboru_zdjecia_pz,
+                    self.pasek_postepu_pz,
+                    self.status_text_pz,
+                    self.kontener_podgladu_pz,
+                    self.btn_otworz_kadrowanie,
+                    self.btn_akcja_analiza_pz,
+                    self.btn_wroc_weryfikacja_pz,
+                    self.btn_udostepnij_pz,
+                    self.btn_usun_zdjecie_pz,
+                    ft.Divider(height=16, color=ft.Colors.GREY_800),
+                    ft.Row([btn_wyczysc_katalog])
+                ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10),
+                padding=ft.Padding(12, 0, 12, 16)
+            )
+        ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=0)
 
         self.widok_pz = ft.Column([
             self.kolumna_glowna_pz,

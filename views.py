@@ -63,19 +63,29 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
                 on_click=lambda e: asyncio.create_task(self.przelacz_widok(cel))
             )
 
-        self.widok_menu = ft.Column([
-            ft.Row([
+        naglowek_menu = ft.Container(
+            content=ft.Row([
                 ft.Column([
                     ft.Text("ocrLmm Hub", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
                     ft.Text("Wybierz moduł roboczy", size=13, color=ft.Colors.GREY_400)
                 ], spacing=2),
                 ft.IconButton(ft.Icons.SETTINGS, tooltip="Ustawienia połączenia", on_click=self.ui.otworz_ustawienia)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            padding=ft.Padding(12, 38, 12, 0)
+        )
+
+        self.widok_menu = ft.Column([
+            naglowek_menu,
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-            kafel_wyboru("Faktura / PZ (Dla PC-Market)", "Pełna analiza towarowa, kody, sumy, baza i generowanie EDI.", ft.Icons.RECEIPT_LONG, ft.Colors.GREEN_900, ft.Colors.GREEN_300, "pz"),
-            kafel_wyboru("Odczyt Dokumentu (Układ 1:1)", "Odczyt pism, umów i tabel z zachowaniem układu do edytora tekstu.", ft.Icons.ARTICLE, ft.Colors.BLUE_900, ft.Colors.BLUE_300, "dokument"),
-            kafel_wyboru("Szybki Skaner Graficzny", "Kadrowanie z podglądem na żywo i filtry czarno-białe (offline).", ft.Icons.CROP_FREE, ft.Colors.DEEP_ORANGE_900, ft.Colors.ORANGE_300, "skaner")
-        ], spacing=12, visible=True)
+            ft.Container(
+                content=ft.Column([
+                    kafel_wyboru("Faktura / PZ (Dla PC-Market)", "Pełna analiza towarowa, kody, sumy, baza i generowanie EDI.", ft.Icons.RECEIPT_LONG, ft.Colors.GREEN_900, ft.Colors.GREEN_300, "pz"),
+                    kafel_wyboru("Odczyt Dokumentu (Układ 1:1)", "Odczyt pism, umów i tabel z zachowaniem układu do edytora tekstu.", ft.Icons.ARTICLE, ft.Colors.BLUE_900, ft.Colors.BLUE_300, "dokument"),
+                    kafel_wyboru("Szybki Skaner Graficzny", "Kadrowanie z podglądem na żywo i filtry czarno-białe (offline).", ft.Icons.CROP_FREE, ft.Colors.DEEP_ORANGE_900, ft.Colors.ORANGE_300, "skaner")
+                ], spacing=12),
+                padding=ft.Padding(12, 0, 12, 16)
+            )
+        ], spacing=0, visible=True)
 
     async def przelacz_widok(self, nazwa: str):
         plat = getattr(self.page, "platform", None)
