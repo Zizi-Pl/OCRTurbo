@@ -1,71 +1,34 @@
-name: Zbuduj Flet APK
+[project]
+name = "OCRTurbo"
+version = "2.4.2"
+description = "Skaner PZ do EDI i inne"
+requires-python = ">=3.11"
+dependencies = [
+    "flet==0.85.3",
+    "flet-camera",
+    "httpx",
+    "pillow",
+    "thefuzz",
+    "python-docx",
+    "openpyxl",
+    "pypdf",
+]
 
-on:
-  workflow_dispatch:
+[tool.flet]
+org = "com.ocrlmm"
+product = "ocrLmm"
+company = "ocrLmm"
+copyright = "Copyright (C) 2026"
+build_version = "2.4.2"
+build_number = 242
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+[tool.flet.app]
+path = "."
 
-    steps:
-      - name: Pobranie kodu repozytorium
-        uses: actions/checkout@v4
-
-      - name: Konfiguracja Pythona
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Konfiguracja Java / Android SDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Cache dla zaleznosci Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Instalacja bibliotek i narzedzia Flet
-        run: |
-          python -m pip install --upgrade pip
-          pip install flet-cli==0.85.3
-          pip install -e .
-
-      - name: Przygotowanie ikony aplikacji (jesli istnieje)
-        run: |
-          mkdir -p assets
-          if [ -f .github/assets/app_icon.png ]; then
-            cp .github/assets/app_icon.png assets/icon.png
-          fi
-
-      - name: Konfiguracja klucza podpisu (Android Keystore)
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android_release.keystore
-          mkdir -p android
-          cat <<EOF > android/key.properties
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=../android_release.keystore
-          EOF
-
-      - name: Budowanie APK dla Androida
-        env:
-          CI: "true"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          yes | flet build apk --project "OCRTurbo" --description "Skaner PZ do EDI i inne" --arch arm64-v8a -v
-
-      - name: Zapisanie pliku APK jako Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ocrLmm-Android-APK
-          path: build/apk/*.apk
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.ACCESS_NETWORK_STATE" = true
+"android.permission.CAMERA" = true
+"android.permission.READ_MEDIA_IMAGES" = true
+"android.permission.READ_EXTERNAL_STORAGE" = true
+"android.permission.WRITE_EXTERNAL_STORAGE" = true
