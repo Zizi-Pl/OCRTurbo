@@ -54,16 +54,12 @@ jobs:
         env:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FLET_ANDROID_KEYSTORE_PATH: release.keystore
+          FLET_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          FLET_ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          FLET_ANDROID_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          yes | flet build apk \
-            --project "OCRTurbo" \
-            --description "Skaner PZ do EDI i inne" \
-            --arch arm64-v8a \
-            --ks-path release.keystore \
-            --ks-password "${{ secrets.KEYSTORE_PASSWORD }}" \
-            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
-            --key-password "${{ secrets.KEY_PASSWORD }}" \
-            -v
+          yes | flet build apk --project "OCRTurbo" --description "Skaner PZ do EDI i inne" --arch arm64-v8a -v
 
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
