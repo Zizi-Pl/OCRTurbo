@@ -419,205 +419,10 @@ class UIManager:
 
     def _inicjalizuj_okno_ustawien(self):
         konfig = config.wczytaj_konfiguracje()
-        
-        # 1. Zarządzanie widocznością modułów w menu głównym
-        self.sw_modul_pz = ft.Switch(
-            label="Moduł PZ (Faktury dla PC-Market)",
-            value=bool(konfig.get("pokaz_modul_pz", True)),
-            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
-        )
-        self.sw_modul_doc = ft.Switch(
-            label="Moduł Dokument (Odczyt 1:1 do edytora)",
-            value=bool(konfig.get("pokaz_modul_doc", True)),
-            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
-        )
-        self.sw_modul_skan = ft.Switch(
-            label="Moduł Skaner (Szybki skan graficzny)",
-            value=bool(konfig.get("pokaz_modul_skan", True)),
-            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
-        )
 
-        self.chk_cloud = ft.Checkbox(label="Użyj chmury (Google Gemini)", value=konfig.get("use_cloud", True))
-        self.dd_rozdzielczosc = ft.Dropdown(
-            label="Jakość skanu (Szybkość vs Tokeny)",
-            options=[
-                ft.dropdown.Option(key="2000", text="2000px (Podstawowa, najlepsza ostrość)"),
-                ft.dropdown.Option(key="1800", text="1800px (Kompromis)"),
-                ft.dropdown.Option(key="1400", text="1400px (Szybki, mały plik)")
-            ],
-            value=str(konfig.get("image_resolution", 1800)),
-            dense=True
-        )
-        self.chk_db_matching = ft.Checkbox(label="Dopasowuj do bazy PC-Market", value=konfig.get("use_db_matching", True))
-        self.txt_gemini_key = ft.TextField(label="Klucz Google AI Studio API", value=konfig.get("gemini_api_key", ""), password=True, can_reveal_password=True, dense=True)
-        self.txt_gemini_model = ft.TextField(label="Model Google AI (np. gemini-2.5-flash)", value=konfig.get("gemini_model", "gemini-2.5-flash"), dense=True)
-
-        self.txt_mac = ft.TextField(label="Adres MAC (Wake-on-LAN)", value=konfig.get("wol_mac", ""), dense=True)
-        self.txt_ip = ft.TextField(label="IP Serwera LM Studio", value=konfig.get("local_ip", "192.168.1.154"), dense=True)
-        self.txt_port = ft.TextField(label="Port LM Studio", value=konfig.get("local_port", "1234"), dense=True)
-
-        lista_modeli = konfig.get("local_models_list", ["qwen/qwen3-vl-8b-instruct", "qwen3-vl-4b-instruct", "qwen3.5-9b"])
-        akt_model = konfig.get("local_model", "qwen3.5-9b")
-        if akt_model and akt_model not in lista_modeli:
-            lista_modeli.append(akt_model)
-
-        self.dd_local_model = ft.Dropdown(
-            label="Wybierz model LM Studio",
-            options=[ft.dropdown.Option(m) for m in lista_modeli],
-            value=akt_model if lista_modeli else None,
-            dense=True,
-            expand=True
-        )
-        self.txt_dodaj_model = ft.TextField(label="Nazwa nowego modelu...", dense=True, expand=True)
-
-        def klik_dodaj_model(e):
-            m = self.txt_dodaj_model.value.strip()
-            if m:
-                istniejace = [opt.key for opt in self.dd_local_model.options]
-                if m not in istniejace:
-                    self.dd_local_model.options.append(ft.dropdown.Option(m))
-                self.dd_local_model.value = m
-                self.txt_dodaj_model.value = ""
-                self.page.update()
-
-        def klik_usun_model(e):
-            m = self.dd_local_model.value
-            if m:
-                self.dd_local_model.options = [opt for opt in self.dd_local_model.options if opt.key != m]
-                self.dd_local_model.value = self.dd_local_model.options[0].key if self.dd_local_model.options else None
-                self.page.update()
-
-        wiersz_wyboru_modelu = ft.Row([self.dd_local_model, ft.IconButton(icon=ft.Icons.DELETE, icon_color=ft.Colors.RED_400, tooltip="Usuń wybrany model", on_click=klik_usun_model)])
-        wiersz_dodawania_modelu = ft.Row([self.txt_dodaj_model, ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.GREEN_400, tooltip="Dodaj do listy", on_click=klik_dodaj_model)])
-        self.txt_local_api_key = ft.TextField(label="Klucz API serwera lokalnego (opcjonalnie)", value=konfig.get("local_api_key", ""), password=True, can_reveal_password=True, dense=True)
-
-        async def klik_budzenie_wol(e):
-            try:
-                target_ip = self.txt_ip.value.strip() or "192.168.1.154"
-                target_mac = self.txt_mac.value.strip()
-                await asyncio.get_running_loop().run_in_executor(None, network.wyslij_wol, target_mac, target_ip)
-                self.dopisz_log("Pakiet WoL wysłany pomyślnie.", ft.Colors.CYAN_ACCENT)
-            except Exception as err_wol:
-                self.dopisz_log(f"Błąd WoL: {err_wol}", ft.Colors.RED_ACCENT)
-
-        btn_wol = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.POWER_SETTINGS_NEW), ft.Text("Obudź serwer lokalny (WoL)")]),
-            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_900, color=ft.Colors.BLUE_200),
-            on_click=klik_budzenie_wol
-        )
-
-        async def wybierz_plik_bazy(e):
-            try:
-                pliki = await self.pickery["baza"].pick_files(
-                    allow_multiple=False,
-                    file_type=ft.FilePickerFileType.CUSTOM,
-                    allowed_extensions=["xlsx", "txt"]
-                )
-                if pliki and len(pliki) > 0 and pliki[0].path:
-                    src = pliki[0].path
-                    nazwa = os.path.basename(src)
-                    
-                    baza_wczytana = core.wczytaj_baze_pcmarket(src)
-                    if not baza_wczytana:
-                        self.pokaz_okno_bledu("Nieprawidłowy plik bazy", f"W pliku {nazwa} nie znaleziono żadnych towarów.", powrot_do=self.dlg_ustawienia)
-                        return
-
-                    dst = os.path.join(config.KATALOG_DANYCH, nazwa)
-                    try:
-                        shutil.copyfile(src, dst)
-                    except Exception:
-                        dst = src
-
-                    konf = config.wczytaj_konfiguracje()
-                    konf["baza_file_path"] = dst
-                    config.zapisz_konfiguracje(konf)
-
-                    if self.views_manager and self.views_manager.stan_weryfikacji:
-                        self.views_manager.stan_weryfikacji["baza"] = baza_wczytana
-
-                    self.odswiez_status_bazy()
-                    self.dopisz_log(f"Wczytano bazę PC-Market: {nazwa} ({len(baza_wczytana)} towarów)", ft.Colors.CYAN_ACCENT)
-            except Exception as err_b:
-                self.pokaz_okno_bledu("Błąd wczytywania bazy", str(err_b), powrot_do=self.dlg_ustawienia)
-
-        async def wybierz_plik_mapowan(e):
-            try:
-                pliki = await self.pickery["mapa"].pick_files(allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["json"])
-                if pliki and len(pliki) > 0 and pliki[0].path:
-                    src = pliki[0].path
-                    nowe = core.wczytaj_plik_mapowan_z_walidacja(src)
-                    dotychczas = core.wczytaj_baze_mapowan()
-                    if dotychczas and os.path.exists(config.MAPA_FILE):
-                        shutil.copyfile(config.MAPA_FILE, config.MAPA_FILE + ".bak")
-                    polaczone = {**dotychczas, **nowe}
-                    core.zapisz_baze_mapowan(polaczone)
-                    self.odswiez_widok_mapowan()
-                    self.odswiez_status_bazy()
-                    self.dopisz_log(f"Wczytano {len(nowe)} reguł OCR.", ft.Colors.CYAN_ACCENT)
-            except Exception as err_m:
-                self.pokaz_okno_bledu("Błąd mapowań", str(err_m), powrot_do=self.dlg_ustawienia)
-
-        async def udostepnij_bazy_kody(e):
-            k = config.wczytaj_konfiguracje()
-            sciezka_bazy = config.pobierz_aktualna_sciezke_bazy(k)
-            pliki_sciezki, pliki_share = [], []
-            if os.path.exists(sciezka_bazy):
-                pliki_sciezki.append(sciezka_bazy)
-                pliki_share.append(ft.ShareFile.from_path(sciezka_bazy))
-            if os.path.exists(core.KARTOTEKA_FILE):
-                pliki_sciezki.append(core.KARTOTEKA_FILE)
-                pliki_share.append(ft.ShareFile.from_path(core.KARTOTEKA_FILE))
-            if os.path.exists(config.MAPA_FILE):
-                pliki_sciezki.append(config.MAPA_FILE)
-                pliki_share.append(ft.ShareFile.from_path(config.MAPA_FILE))
-            if not pliki_sciezki:
-                self.pokaz_okno_bledu("Brak plików", "Nie znaleziono pliku bazy ani mapowań.", powrot_do=self.dlg_ustawienia)
-                return
-            try:
-                if hasattr(self.serwis_udostepniania, "share_files"):
-                    try:
-                        await self.serwis_udostepniania.share_files(pliki_share, text="Baza towarowa i relacje OCR")
-                    except Exception:
-                        await self.serwis_udostepniania.share_files(pliki_sciezki)
-            except Exception as err_s:
-                self.pokaz_okno_bledu("Błąd udostępniania", str(err_s), powrot_do=self.dlg_ustawienia)
-
-        kontener_widocznosci = ft.Column([
-            ft.Text("Aktywne moduły w menu (Hub):", weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_300),
-            self.sw_modul_pz,
-            self.sw_modul_doc,
-            self.sw_modul_skan
-        ], spacing=4)
-
-        kontener_baza = ft.Column([
-            ft.Text("Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300),
-            self.chk_db_matching,
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.FOLDER_OPEN), ft.Text("Wczytaj bazę (.xlsx / .txt)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_900, color=ft.Colors.WHITE), on_click=wybierz_plik_bazy),
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE), ft.Text("Wgraj relacje OCR (.json)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_900, color=ft.Colors.WHITE), on_click=wybierz_plik_mapowan),
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE), ft.Text("Zarządzaj powiązaniami")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE), on_click=self.otworz_okno_bazy_recznej),
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.IOS_SHARE), ft.Text("Udostępnij bazy i kody")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_800, color=ft.Colors.WHITE), on_click=udostepnij_bazy_kody),
-            self.lbl_status_bazy
-        ], spacing=6)
-
-        kontener_gemini = ft.Column([
-            ft.Text("Konfiguracja Google Gemini:", weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_300),
-            self.txt_gemini_key, self.txt_gemini_model
-        ], spacing=8, visible=self.chk_cloud.value)
-
-        kontener_lokalny = ft.Column([
-            ft.Text("Konfiguracja serwera lokalnego:", weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_300),
-            self.txt_mac, self.txt_ip, self.txt_port,
-            ft.Text("Zarządzanie modelami LM Studio:", size=12, color=ft.Colors.GREY_400),
-            wiersz_wyboru_modelu, wiersz_dodawania_modelu, self.txt_local_api_key, btn_wol
-        ], spacing=8, visible=not self.chk_cloud.value)
-
-        def przelacz_profil(e):
-            kontener_gemini.visible = self.chk_cloud.value
-            kontener_lokalny.visible = not self.chk_cloud.value
-            self.page.update()
-
-        self.chk_cloud.on_change = przelacz_profil
-
+        # ---------------------------------------------------------
+        # 1. KOPIA ZAPASOWA (NA SAMEJ GÓRZE)
+        # ---------------------------------------------------------
         async def eksportuj_backup(e):
             try:
                 k = config.wczytaj_konfiguracje()
@@ -705,11 +510,266 @@ class UIManager:
                 self.pokaz_okno_bledu("Błąd importu", str(err_imp), powrot_do=self.dlg_ustawienia)
 
         kontener_backup = ft.Column([
-            ft.Text("Kopia zapasowa (Ustawienia + Reguły):", weight=ft.FontWeight.BOLD, color=ft.Colors.TEAL_300),
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.UPLOAD), ft.Text("Eksportuj kopię (wszystko w jednym)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_800, color=ft.Colors.WHITE), on_click=eksportuj_backup),
-            ft.Button(content=ft.Row([ft.Icon(ft.Icons.DOWNLOAD), ft.Text("Importuj kopię z pliku (.json)")], alignment=ft.MainAxisAlignment.CENTER), style=ft.ButtonStyle(bgcolor=ft.Colors.INDIGO_800, color=ft.Colors.WHITE), on_click=importuj_backup)
+            ft.Text("💾 Kopia zapasowa (Ustawienia + Reguły):", weight=ft.FontWeight.BOLD, color=ft.Colors.TEAL_300, size=14),
+            ft.Row([
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.UPLOAD, size=16), ft.Text("Eksportuj kopię")], spacing=4),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.TEAL_800, color=ft.Colors.WHITE, padding=10),
+                    on_click=eksportuj_backup,
+                    expand=True
+                ),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.DOWNLOAD, size=16), ft.Text("Importuj kopię")], spacing=4),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.INDIGO_800, color=ft.Colors.WHITE, padding=10),
+                    on_click=importuj_backup,
+                    expand=True
+                )
+            ], spacing=8)
         ], spacing=6)
 
+        # ---------------------------------------------------------
+        # 2. BAZA TOWAROWA PC-MARKET
+        # ---------------------------------------------------------
+        async def wybierz_plik_bazy(e):
+            try:
+                pliki = await self.pickery["baza"].pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["xlsx", "txt"]
+                )
+                if pliki and len(pliki) > 0 and pliki[0].path:
+                    src = pliki[0].path
+                    nazwa = os.path.basename(src)
+                    
+                    baza_wczytana = core.wczytaj_baze_pcmarket(src)
+                    if not baza_wczytana:
+                        self.pokaz_okno_bledu("Nieprawidłowy plik bazy", f"W pliku {nazwa} nie znaleziono żadnych towarów.", powrot_do=self.dlg_ustawienia)
+                        return
+
+                    dst = os.path.join(config.KATALOG_DANYCH, nazwa)
+                    try:
+                        shutil.copyfile(src, dst)
+                    except Exception:
+                        dst = src
+
+                    konf = config.wczytaj_konfiguracje()
+                    konf["baza_file_path"] = dst
+                    config.zapisz_konfiguracje(konf)
+
+                    if self.views_manager and self.views_manager.stan_weryfikacji:
+                        self.views_manager.stan_weryfikacji["baza"] = baza_wczytana
+
+                    self.odswiez_status_bazy()
+                    self.dopisz_log(f"Wczytano bazę PC-Market: {nazwa} ({len(baza_wczytana)} towarów)", ft.Colors.CYAN_ACCENT)
+            except Exception as err_b:
+                self.pokaz_okno_bledu("Błąd wczytywania bazy", str(err_b), powrot_do=self.dlg_ustawienia)
+
+        async def wybierz_plik_mapowan(e):
+            try:
+                pliki = await self.pickery["mapa"].pick_files(allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["json"])
+                if pliki and len(pliki) > 0 and pliki[0].path:
+                    src = pliki[0].path
+                    nowe = core.wczytaj_plik_mapowan_z_walidacja(src)
+                    dotychczas = core.wczytaj_baze_mapowan()
+                    if dotychczas and os.path.exists(config.MAPA_FILE):
+                        shutil.copyfile(config.MAPA_FILE, config.MAPA_FILE + ".bak")
+                    polaczone = {**dotychczas, **nowe}
+                    core.zapisz_baze_mapowan(polaczone)
+                    self.odswiez_widok_mapowan()
+                    self.odswiez_status_bazy()
+                    self.dopisz_log(f"Wczytano {len(nowe)} reguł OCR.", ft.Colors.CYAN_ACCENT)
+            except Exception as err_m:
+                self.pokaz_okno_bledu("Błąd mapowań", str(err_m), powrot_do=self.dlg_ustawienia)
+
+        async def udostepnij_bazy_kody(e):
+            k = config.wczytaj_konfiguracje()
+            sciezka_bazy = config.pobierz_aktualna_sciezke_bazy(k)
+            pliki_sciezki, pliki_share = [], []
+            if os.path.exists(sciezka_bazy):
+                pliki_sciezki.append(sciezka_bazy)
+                pliki_share.append(ft.ShareFile.from_path(sciezka_bazy))
+            if os.path.exists(core.KARTOTEKA_FILE):
+                pliki_sciezki.append(core.KARTOTEKA_FILE)
+                pliki_share.append(ft.ShareFile.from_path(core.KARTOTEKA_FILE))
+            if os.path.exists(config.MAPA_FILE):
+                pliki_sciezki.append(config.MAPA_FILE)
+                pliki_share.append(ft.ShareFile.from_path(config.MAPA_FILE))
+            if not pliki_sciezki:
+                self.pokaz_okno_bledu("Brak plików", "Nie znaleziono pliku bazy ani mapowań.", powrot_do=self.dlg_ustawienia)
+                return
+            try:
+                if hasattr(self.serwis_udostepniania, "share_files"):
+                    try:
+                        await self.serwis_udostepniania.share_files(pliki_share, text="Baza towarowa i relacje OCR")
+                    except Exception:
+                        await self.serwis_udostepniania.share_files(pliki_sciezki)
+            except Exception as err_s:
+                self.pokaz_okno_bledu("Błąd udostępniania", str(err_s), powrot_do=self.dlg_ustawienia)
+
+        self.chk_db_matching = ft.Checkbox(label="Dopasowuj pozycje do bazy PC-Market", value=konfig.get("use_db_matching", True))
+
+        kontener_baza = ft.Column([
+            ft.Text("📦 Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300, size=14),
+            self.chk_db_matching,
+            ft.Row([
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.FOLDER_OPEN, size=16), ft.Text("Wczytaj bazę (.xlsx/.txt)")], spacing=4),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_900, color=ft.Colors.WHITE, padding=10),
+                    on_click=wybierz_plik_bazy,
+                    expand=True
+                ),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE, size=16), ft.Text("Wgraj relacje (.json)")], spacing=4),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_ORANGE_900, color=ft.Colors.WHITE, padding=10),
+                    on_click=wybierz_plik_mapowan,
+                    expand=True
+                )
+            ], spacing=8),
+            ft.Row([
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.EDIT_NOTE, size=16), ft.Text("Zarządzaj powiązaniami")], spacing=4),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, color=ft.Colors.WHITE, padding=10),
+                    on_click=self.otworz_okno_bazy_recznej,
+                    expand=True
+                ),
+                ft.Button(
+                    content=ft.Row([ft.Icon(ft.Icons.IOS_SHARE, size=16), ft.Text("Udostępnij bazy")], spacing=4),
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.DEEP_PURPLE_800, color=ft.Colors.WHITE, padding=10),
+                    on_click=udostepnij_bazy_kody,
+                    expand=True
+                )
+            ], spacing=8),
+            self.lbl_status_bazy
+        ], spacing=6)
+
+        # ---------------------------------------------------------
+        # 3. SILNIK ROZPOZNAWANIA OCR (CHMURA GEMINI / LM STUDIO)
+        # ---------------------------------------------------------
+        self.chk_cloud = ft.Checkbox(label="Użyj chmury (Google Gemini)", value=konfig.get("use_cloud", True))
+        self.dd_rozdzielczosc = ft.Dropdown(
+            label="Jakość skanu (Szybkość vs Tokeny)",
+            options=[
+                ft.dropdown.Option(key="2000", text="2000px (Podstawowa, najlepsza ostrość)"),
+                ft.dropdown.Option(key="1800", text="1800px (Kompromis)"),
+                ft.dropdown.Option(key="1400", text="1400px (Szybki, mały plik)")
+            ],
+            value=str(konfig.get("image_resolution", 1800)),
+            dense=True
+        )
+
+        self.txt_gemini_key = ft.TextField(label="Klucz Google AI Studio API", value=konfig.get("gemini_api_key", ""), password=True, can_reveal_password=True, dense=True)
+        self.txt_gemini_model = ft.TextField(label="Model Google AI (np. gemini-2.5-flash)", value=konfig.get("gemini_model", "gemini-2.5-flash"), dense=True)
+
+        self.txt_mac = ft.TextField(label="Adres MAC (Wake-on-LAN)", value=konfig.get("wol_mac", ""), dense=True)
+        self.txt_ip = ft.TextField(label="IP Serwera LM Studio", value=konfig.get("local_ip", "192.168.1.154"), dense=True)
+        self.txt_port = ft.TextField(label="Port LM Studio", value=konfig.get("local_port", "1234"), dense=True)
+
+        lista_modeli = konfig.get("local_models_list", ["qwen/qwen3-vl-8b-instruct", "qwen3-vl-4b-instruct", "qwen3.5-9b"])
+        akt_model = konfig.get("local_model", "qwen3.5-9b")
+        if akt_model and akt_model not in lista_modeli:
+            lista_modeli.append(akt_model)
+
+        self.dd_local_model = ft.Dropdown(
+            label="Wybierz model LM Studio",
+            options=[ft.dropdown.Option(m) for m in lista_modeli],
+            value=akt_model if lista_modeli else None,
+            dense=True,
+            expand=True
+        )
+        self.txt_dodaj_model = ft.TextField(label="Nazwa nowego modelu...", dense=True, expand=True)
+
+        def klik_dodaj_model(e):
+            m = self.txt_dodaj_model.value.strip()
+            if m:
+                istniejace = [opt.key for opt in self.dd_local_model.options]
+                if m not in istniejace:
+                    self.dd_local_model.options.append(ft.dropdown.Option(m))
+                self.dd_local_model.value = m
+                self.txt_dodaj_model.value = ""
+                self.page.update()
+
+        def klik_usun_model(e):
+            m = self.dd_local_model.value
+            if m:
+                self.dd_local_model.options = [opt for opt in self.dd_local_model.options if opt.key != m]
+                self.dd_local_model.value = self.dd_local_model.options[0].key if self.dd_local_model.options else None
+                self.page.update()
+
+        wiersz_wyboru_modelu = ft.Row([self.dd_local_model, ft.IconButton(icon=ft.Icons.DELETE, icon_color=ft.Colors.RED_400, tooltip="Usuń wybrany model", on_click=klik_usun_model)])
+        wiersz_dodawania_modelu = ft.Row([self.txt_dodaj_model, ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.GREEN_400, tooltip="Dodaj do listy", on_click=klik_dodaj_model)])
+        self.txt_local_api_key = ft.TextField(label="Klucz API serwera lokalnego (opcjonalnie)", value=konfig.get("local_api_key", ""), password=True, can_reveal_password=True, dense=True)
+
+        async def klik_budzenie_wol(e):
+            try:
+                target_ip = self.txt_ip.value.strip() or "192.168.1.154"
+                target_mac = self.txt_mac.value.strip()
+                await asyncio.get_running_loop().run_in_executor(None, network.wyslij_wol, target_mac, target_ip)
+                self.dopisz_log("Pakiet WoL wysłany pomyślnie.", ft.Colors.CYAN_ACCENT)
+            except Exception as err_wol:
+                self.dopisz_log(f"Błąd WoL: {err_wol}", ft.Colors.RED_ACCENT)
+
+        btn_wol = ft.Button(
+            content=ft.Row([ft.Icon(ft.Icons.POWER_SETTINGS_NEW), ft.Text("Obudź serwer lokalny (WoL)")]),
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_900, color=ft.Colors.BLUE_200),
+            on_click=klik_budzenie_wol
+        )
+
+        kontener_gemini = ft.Column([
+            ft.Text("Konfiguracja Google Gemini:", weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_300),
+            self.txt_gemini_key, self.txt_gemini_model
+        ], spacing=8, visible=self.chk_cloud.value)
+
+        kontener_lokalny = ft.Column([
+            ft.Text("Konfiguracja serwera lokalnego:", weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_300),
+            self.txt_mac, self.txt_ip, self.txt_port,
+            ft.Text("Zarządzanie modelami LM Studio:", size=12, color=ft.Colors.GREY_400),
+            wiersz_wyboru_modelu, wiersz_dodawania_modelu, self.txt_local_api_key, btn_wol
+        ], spacing=8, visible=not self.chk_cloud.value)
+
+        def przelacz_profil(e):
+            kontener_gemini.visible = self.chk_cloud.value
+            kontener_lokalny.visible = not self.chk_cloud.value
+            self.page.update()
+
+        self.chk_cloud.on_change = przelacz_profil
+
+        kontener_silnik = ft.Column([
+            ft.Text("🧠 Silnik rozpoznawania OCR:", weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_300, size=14),
+            self.chk_cloud,
+            self.dd_rozdzielczosc,
+            kontener_gemini,
+            kontener_lokalny
+        ], spacing=8)
+
+        # ---------------------------------------------------------
+        # 4. ZARZĄDZANIE WIDOCZNOŚCIĄ MODUŁÓW (NA SAMYM DOLE)
+        # ---------------------------------------------------------
+        self.sw_modul_pz = ft.Switch(
+            label="Moduł PZ (Faktury dla PC-Market)",
+            value=bool(konfig.get("pokaz_modul_pz", True)),
+            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
+        )
+        self.sw_modul_doc = ft.Switch(
+            label="Moduł Dokument (Odczyt 1:1 do edytora)",
+            value=bool(konfig.get("pokaz_modul_doc", True)),
+            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
+        )
+        self.sw_modul_skan = ft.Switch(
+            label="Moduł Skaner (Szybki skan graficzny)",
+            value=bool(konfig.get("pokaz_modul_skan", True)),
+            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
+        )
+
+        kontener_widocznosci = ft.Column([
+            ft.Text("📱 Widoczność modułów w menu głównym (Hub):", weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_300, size=14),
+            self.sw_modul_pz,
+            self.sw_modul_doc,
+            self.sw_modul_skan
+        ], spacing=4)
+
+        # ---------------------------------------------------------
+        # ZAPIS KONFIGURACJI I BUDOWA OKNA MODALNEGO (PEŁNY EKRAN)
+        # ---------------------------------------------------------
         def zapisz_i_zamknij(e):
             konf = config.wczytaj_konfiguracje()
             konf["pokaz_modul_pz"] = bool(self.sw_modul_pz.value)
@@ -736,14 +796,24 @@ class UIManager:
 
         self.dlg_ustawienia = ft.AlertDialog(
             modal=True,
-            title=ft.Text("⚙️ Ustawienia połączenia i modułów"),
-            content=ft.Column([
-                kontener_widocznosci, ft.Divider(),
-                self.chk_cloud, self.dd_rozdzielczosc, ft.Divider(),
-                kontener_gemini, kontener_lokalny, ft.Divider(),
-                kontener_baza, ft.Divider(),
-                kontener_backup
-            ], tight=True, scroll=ft.ScrollMode.AUTO, spacing=10),
+            inset_padding=ft.Padding(6, 12, 6, 12),
+            title=ft.Row([
+                ft.Icon(ft.Icons.SETTINGS, color=ft.Colors.GREEN_400, size=24),
+                ft.Text("Ustawienia systemowe", size=18, weight=ft.FontWeight.BOLD)
+            ], spacing=8),
+            content=ft.Container(
+                content=ft.Column([
+                    kontener_backup,
+                    ft.Divider(color=ft.Colors.GREY_800),
+                    kontener_baza,
+                    ft.Divider(color=ft.Colors.GREY_800),
+                    kontener_silnik,
+                    ft.Divider(color=ft.Colors.GREY_800),
+                    kontener_widocznosci
+                ], scroll=ft.ScrollMode.AUTO, spacing=10),
+                width=1000,
+                height=580
+            ),
             actions=[
                 ft.Button(content=ft.Text("Anuluj"), on_click=lambda e: self.page.pop_dialog()),
                 ft.Button(content=ft.Text("Zapisz"), style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, color=ft.Colors.WHITE), on_click=zapisz_i_zamknij)
@@ -776,7 +846,7 @@ class UIManager:
             ], spacing=8),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("ocrTurbo v2.4.1", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_300),
+                    ft.Text("ocrTurbo v2.4.3", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_300),
                     ft.Text("Mobilno-desktopowy skaner dokumentów i analizator faktur z generowaniem plików EDI dla PC-Market.", size=13),
                     ft.Divider(color=ft.Colors.GREY_800),
                     ft.Text("Główne możliwości:", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400),
