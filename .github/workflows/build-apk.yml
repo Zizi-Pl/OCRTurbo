@@ -46,12 +46,24 @@ jobs:
             cp .github/assets/app_icon.png assets/icon.png
           fi
 
-      - name: Budowanie APK dla Androida
+      - name: Przygotowanie klucza Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+
+      - name: Budowanie APK dla Androida z podpisem
         env:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          yes | flet build apk --project "OCRTurbo" --description "Skaner PZ do EDI i inne" --arch arm64-v8a -v
+          yes | flet build apk \
+            --project "OCRTurbo" \
+            --description "Skaner PZ do EDI i inne" \
+            --arch arm64-v8a \
+            --ks-path release.keystore \
+            --ks-password "${{ secrets.KEYSTORE_PASSWORD }}" \
+            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
+            --key-password "${{ secrets.KEY_PASSWORD }}" \
+            -v
 
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
