@@ -2,6 +2,7 @@ import asyncio
 import flet as ft
 from ui import UIManager
 
+import config
 from module_pz import ModulPZMixin
 from module_doc import ModulDocMixin
 from module_scan import ModulScanMixin
@@ -37,6 +38,7 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
         self._inicjalizuj_modul_dokument()
         self._inicjalizuj_modul_skaner()
         self._inicjalizuj_menu_glowne()
+        self.odswiez_widocznosc_modulow(aktualizuj_strone=False)
 
     def przypisz_zrobione_foto(self, sciezka: str, modul: str):
         if modul == "pz":
@@ -69,9 +71,25 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
                     ft.Text("ocrLmm Hub", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
                     ft.Text("Wybierz moduł roboczy", size=13, color=ft.Colors.GREY_400)
                 ], spacing=2),
-                ft.IconButton(ft.Icons.SETTINGS, tooltip="Ustawienia połączenia", on_click=self.ui.otworz_ustawienia)
+                ft.IconButton(ft.Icons.SETTINGS, tooltip="Ustawienia aplikacji", on_click=self.ui.otworz_ustawienia)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.Padding(12, 38, 12, 0)
+        )
+
+        self.kafel_pz = kafel_wyboru(
+            "Faktura / PZ (Dla PC-Market)",
+            "Pełna analiza towarowa, kody, sumy, baza i generowanie EDI.",
+            ft.Icons.RECEIPT_LONG, ft.Colors.GREEN_900, ft.Colors.GREEN_300, "pz"
+        )
+        self.kafel_doc = kafel_wyboru(
+            "Odczyt Dokumentu (Układ 1:1)",
+            "Odczyt pism, umów i tabel z zachowaniem układu do edytora tekstu.",
+            ft.Icons.ARTICLE, ft.Colors.BLUE_900, ft.Colors.BLUE_300, "dokument"
+        )
+        self.kafel_skan = kafel_wyboru(
+            "Szybki Skaner Graficzny",
+            "Kadrowanie z podglądem na żywo i filtry czarno-białe (offline).",
+            ft.Icons.CROP_FREE, ft.Colors.DEEP_ORANGE_900, ft.Colors.ORANGE_300, "skaner"
         )
 
         self.widok_menu = ft.Column([
@@ -79,13 +97,22 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
             ft.Container(
                 content=ft.Column([
-                    kafel_wyboru("Faktura / PZ (Dla PC-Market)", "Pełna analiza towarowa, kody, sumy, baza i generowanie EDI.", ft.Icons.RECEIPT_LONG, ft.Colors.GREEN_900, ft.Colors.GREEN_300, "pz"),
-                    kafel_wyboru("Odczyt Dokumentu (Układ 1:1)", "Odczyt pism, umów i tabel z zachowaniem układu do edytora tekstu.", ft.Icons.ARTICLE, ft.Colors.BLUE_900, ft.Colors.BLUE_300, "dokument"),
-                    kafel_wyboru("Szybki Skaner Graficzny", "Kadrowanie z podglądem na żywo i filtry czarno-białe (offline).", ft.Icons.CROP_FREE, ft.Colors.DEEP_ORANGE_900, ft.Colors.ORANGE_300, "skaner")
+                    self.kafel_pz,
+                    self.kafel_doc,
+                    self.kafel_skan
                 ], spacing=12),
                 padding=ft.Padding(12, 0, 12, 16)
             )
         ], spacing=0, visible=True)
+
+    def odswiez_widocznosc_modulow(self, aktualizuj_strone: bool = True):
+        """Dostosowuje kafelki w menu na podstawie bieżącej konfiguracji."""
+        konf = config.wczytaj_konfiguracje()
+        self.kafel_pz.visible = bool(konf.get("pokaz_modul_pz", True))
+        self.kafel_doc.visible = bool(konf.get("pokaz_modul_doc", True))
+        self.kafel_skan.visible = bool(konf.get("pokaz_modul_skan", True))
+        if aktualizuj_strone:
+            self.page.update()
 
     async def przelacz_widok(self, nazwa: str):
         plat = getattr(self.page, "platform", None)

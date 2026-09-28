@@ -33,11 +33,18 @@ class ModulPZMixin:
 
         # 3. Kontrolki głównego ekranu PZ (nowoczesny ft.Button bez DeprecationWarning)
         self.btn_akcja_analiza_pz = ft.Button(
-            content=ft.Row([ft.Icon(ft.Icons.PLAY_ARROW), ft.Text("Rozpocznij analizę PZ")], alignment=ft.MainAxisAlignment.CENTER),
-            visible=False, height=48,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_900, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: asyncio.create_task(self.przetworz_plik_pz(self.aktualne_zdjecie_pz["sciezka"]))
-        )
+			content=ft.Row([
+				ft.Icon(ft.Icons.PLAY_ARROW, size=24), 
+				ft.Text("Rozpocznij analizę PZ", size=16, weight=ft.FontWeight.BOLD)
+			], alignment=ft.MainAxisAlignment.CENTER),
+			visible=False, height=52,
+			style=ft.ButtonStyle(
+				bgcolor=ft.Colors.GREEN_800, 
+				color=ft.Colors.WHITE, 
+				shape=ft.RoundedRectangleBorder(radius=8)
+			),
+			on_click=lambda e: asyncio.create_task(self.przetworz_plik_pz(self.aktualne_zdjecie_pz["sciezka"]))
+		)
 
         self.btn_usun_zdjecie_pz = ft.Button(
             content=ft.Row([ft.Icon(ft.Icons.DELETE_OUTLINE, size=18), ft.Text("Usuń wybrane zdjęcie", size=12)], alignment=ft.MainAxisAlignment.CENTER),

@@ -418,6 +418,24 @@ class UIManager:
 
     def _inicjalizuj_okno_ustawien(self):
         konfig = config.wczytaj_konfiguracje()
+        
+        # 1. Zarządzanie widocznością modułów w menu głównym
+        self.sw_modul_pz = ft.Switch(
+            label="Moduł PZ (Faktury dla PC-Market)",
+            value=bool(konfig.get("pokaz_modul_pz", True)),
+            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
+        )
+        self.sw_modul_doc = ft.Switch(
+            label="Moduł Dokument (Odczyt 1:1 do edytora)",
+            value=bool(konfig.get("pokaz_modul_doc", True)),
+            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
+        )
+        self.sw_modul_skan = ft.Switch(
+            label="Moduł Skaner (Szybki skan graficzny)",
+            value=bool(konfig.get("pokaz_modul_skan", True)),
+            on_change=lambda e: self._on_zmiana_widocznosci_modulu()
+        )
+
         self.chk_cloud = ft.Checkbox(label="Użyj chmury (Google Gemini)", value=konfig.get("use_cloud", True))
         self.dd_rozdzielczosc = ft.Dropdown(
             label="Jakość skanu (Szybkość vs Tokeny)",
@@ -563,6 +581,13 @@ class UIManager:
             except Exception as err_s:
                 self.pokaz_okno_bledu("Błąd udostępniania", str(err_s), powrot_do=self.dlg_ustawienia)
 
+        kontener_widocznosci = ft.Column([
+            ft.Text("Aktywne moduły w menu (Hub):", weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_300),
+            self.sw_modul_pz,
+            self.sw_modul_doc,
+            self.sw_modul_skan
+        ], spacing=4)
+
         kontener_baza = ft.Column([
             ft.Text("Baza towarowa PC-Market:", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_300),
             self.chk_db_matching,
@@ -595,6 +620,9 @@ class UIManager:
         async def eksportuj_backup(e):
             try:
                 k = config.wczytaj_konfiguracje()
+                k["pokaz_modul_pz"] = bool(self.sw_modul_pz.value)
+                k["pokaz_modul_doc"] = bool(self.sw_modul_doc.value)
+                k["pokaz_modul_skan"] = bool(self.sw_modul_skan.value)
                 k["use_cloud"] = self.chk_cloud.value
                 k["use_db_matching"] = self.chk_db_matching.value
                 k["gemini_api_key"] = self.txt_gemini_key.value.strip()
@@ -642,6 +670,10 @@ class UIManager:
                 konf.update(nowa_k)
                 config.zapisz_konfiguracje(konf)
 
+                self.sw_modul_pz.value = bool(konf.get("pokaz_modul_pz", True))
+                self.sw_modul_doc.value = bool(konf.get("pokaz_modul_doc", True))
+                self.sw_modul_skan.value = bool(konf.get("pokaz_modul_skan", True))
+
                 self.chk_cloud.value = konf.get("use_cloud", True)
                 self.chk_db_matching.value = konf.get("use_db_matching", True)
                 self.dd_rozdzielczosc.value = str(konf.get("image_resolution", 1800))
@@ -656,6 +688,9 @@ class UIManager:
                 self.dd_local_model.options = [ft.dropdown.Option(m) for m in modele]
                 self.dd_local_model.value = konf.get("local_model", "")
                 przelacz_profil(None)
+
+                if self.views_manager and hasattr(self.views_manager, "odswiez_widocznosc_modulow"):
+                    self.views_manager.odswiez_widocznosc_modulow(aktualizuj_strone=True)
 
                 if isinstance(nowe_m, dict) and nowe_m:
                     poprz = core.wczytaj_baze_mapowan()
@@ -676,6 +711,9 @@ class UIManager:
 
         def zapisz_i_zamknij(e):
             konf = config.wczytaj_konfiguracje()
+            konf["pokaz_modul_pz"] = bool(self.sw_modul_pz.value)
+            konf["pokaz_modul_doc"] = bool(self.sw_modul_doc.value)
+            konf["pokaz_modul_skan"] = bool(self.sw_modul_skan.value)
             konf["use_cloud"] = self.chk_cloud.value
             konf["use_db_matching"] = self.chk_db_matching.value
             konf["gemini_api_key"] = self.txt_gemini_key.value.strip()
@@ -689,13 +727,17 @@ class UIManager:
             konf["image_resolution"] = int(self.dd_rozdzielczosc.value)
 
             config.zapisz_konfiguracje(konf)
+            if self.views_manager and hasattr(self.views_manager, "odswiez_widocznosc_modulow"):
+                self.views_manager.odswiez_widocznosc_modulow(aktualizuj_strone=True)
+
             self.page.pop_dialog()
             self.dopisz_log("Zapisano konfigurację aplikacji.", ft.Colors.CYAN_ACCENT)
 
         self.dlg_ustawienia = ft.AlertDialog(
             modal=True,
-            title=ft.Text("⚙️ Ustawienia połączenia"),
+            title=ft.Text("⚙️ Ustawienia połączenia i modułów"),
             content=ft.Column([
+                kontener_widocznosci, ft.Divider(),
                 self.chk_cloud, self.dd_rozdzielczosc, ft.Divider(),
                 kontener_gemini, kontener_lokalny, ft.Divider(),
                 kontener_baza, ft.Divider(),
@@ -707,7 +749,21 @@ class UIManager:
             ]
         )
 
+    def _on_zmiana_widocznosci_modulu(self):
+        """Tymczasowo aktualizuje kafelki w menu podczas przesuwania suwaków."""
+        konf = config.wczytaj_konfiguracje()
+        konf["pokaz_modul_pz"] = bool(self.sw_modul_pz.value)
+        konf["pokaz_modul_doc"] = bool(self.sw_modul_doc.value)
+        konf["pokaz_modul_skan"] = bool(self.sw_modul_skan.value)
+        config.zapisz_konfiguracje(konf)
+        if self.views_manager and hasattr(self.views_manager, "odswiez_widocznosc_modulow"):
+            self.views_manager.odswiez_widocznosc_modulow(aktualizuj_strone=True)
+
     def otworz_ustawienia(self, e=None):
+        konf = config.wczytaj_konfiguracje()
+        self.sw_modul_pz.value = bool(konf.get("pokaz_modul_pz", True))
+        self.sw_modul_doc.value = bool(konf.get("pokaz_modul_doc", True))
+        self.sw_modul_skan.value = bool(konf.get("pokaz_modul_skan", True))
         self.bezpiecznie_otworz_dialog(self.dlg_ustawienia)
 
     def znajdz_nazwe_dla_kodu(self, kod_szukany: str, baza: list = None) -> str:

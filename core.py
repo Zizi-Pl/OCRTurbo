@@ -29,7 +29,6 @@ def sprawdz_poprawnosc_nip(nip: str) -> bool:
     suma = sum(int(nip_czysty[i]) * wagi[i] for i in range(9))
     suma_kontrolna = suma % 11
     
-    # 10 nie może być cyfrą kontrolną w polskim NIP
     if suma_kontrolna == 10:
         return False
         
@@ -374,13 +373,12 @@ def importuj_baze_z_excela(sciezka_xlsx: str) -> tuple[list[dict], int, int]:
 def zbuduj_indeks_nazw(baza: list[dict]) -> dict:
     mapa_nazw = {}
     for t in baza:
-        kod = t.get("kod") or t.get("kod_wew")
         surowa_nazwa = t.get("nazwa", "")
         czesci = surowa_nazwa.split("/")
         trzon = normalizuj_nazwe(czesci[0])
 
         if trzon and trzon not in mapa_nazw:
-            mapa_nazw[trzon] = kod
+            mapa_nazw[trzon] = t
 
         if len(czesci) > 1:
             slowa_trzonu = trzon.split()
@@ -391,18 +389,18 @@ def zbuduj_indeks_nazw(baza: list[dict]) -> dict:
                     continue
                 klucz1 = f"{trzon} {wariant_norm}"
                 if klucz1 not in mapa_nazw:
-                    mapa_nazw[klucz1] = kod
+                    mapa_nazw[klucz1] = t
                 if kategoria and kategoria != trzon:
                     klucz2 = f"{kategoria} {wariant_norm}"
                     if klucz2 not in mapa_nazw:
-                        mapa_nazw[klucz2] = kod
+                        mapa_nazw[klucz2] = t
     return mapa_nazw
 
 
 def zbuduj_indeks_bez_diakrytykow(indeks: dict) -> dict:
     wynik = {}
-    for nazwa, kod in indeks.items():
-        wynik.setdefault(usun_diakrytyki(nazwa), kod)
+    for nazwa, t_obj in indeks.items():
+        wynik.setdefault(usun_diakrytyki(nazwa), t_obj)
     return wynik
 
 
@@ -473,7 +471,8 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
                                 "kod_wew": kod.split("?")[0].replace("29", "") if "?" in kod else kod,
                                 "kody_kreskowe": kody_kreskowe,
                                 "jm": "kg",
-                                "vat": "5"
+                                "vat": "5",
+                                "cena_ew": 0.0
                             })
             except Exception as e:
                 print(f"Błąd parsowania bazy PC-Market: {e}")
@@ -488,7 +487,8 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
 # --- ALGORYTM DOPASOWANIA TOWARU (FILOZOFIA PC-MARKET) ---
 def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict], uzywaj_bazy: bool,
                          mapowania: dict = None, indeks: dict = None,
-                         indeks_bez_og: dict = None) -> tuple[str, str, str]:
+                         indeks_bez_og: dict = None) -> tuple[str, str, str, dict]:
+    """Zwraca: (kod_dopasowany, kod_faktura_clean, pewnosc, obiekt_towaru_lub_none)"""
     kod_faktura_clean = str(kod_faktura or "").strip()
     
     if czy_to_pkwiu_lub_cn(kod_faktura_clean):
@@ -497,32 +497,35 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
     nazwa_faktura_clean = normalizuj_nazwe(nazwa_faktura)
     nazwa_bez_og = usun_diakrytyki(nazwa_faktura_clean)
 
-    # 1. Prawdziwy kod wagowy odczytany z dokumentu (29xxxx / 28xxxx)
+    # 1. Kod wagowy (29xxxx / 28xxxx)
     kod_z_wagi = wyodrebnij_kod_wazony(kod_faktura_clean)
     if kod_z_wagi:
         if baza:
             for t in baza:
                 if str(t.get("kod", "")).startswith(kod_z_wagi):
-                    return str(t.get("kod")), kod_faktura_clean, "WAGA_KOD"
-        return kod_z_wagi, kod_faktura_clean, "WAGA_KOD"
+                    return str(t.get("kod")), kod_faktura_clean, "WAGA_KOD", t
+        return kod_z_wagi, kod_faktura_clean, "WAGA_KOD", None
 
     if not uzywaj_bazy:
         kod_do_zwrotu = "" if "?" in kod_faktura_clean else kod_faktura_clean
-        return kod_do_zwrotu, kod_faktura_clean, "ORYGINAL"
+        return kod_do_zwrotu, kod_faktura_clean, "ORYGINAL", None
 
-    # 2. Własne reguły OCR / aliasy (sprawdzamy słownik powiązań)
+    # 2. Własne reguły OCR / aliasy
     if mapowania is None:
         mapowania = wczytaj_baze_mapowan()
 
     if kod_faktura_clean:
         for reg_nazwa, reg_dane in mapowania.items():
             if isinstance(reg_dane, dict) and reg_dane.get("kod_dostawcy") == kod_faktura_clean:
-                return str(reg_dane.get("kod")), kod_faktura_clean, "REGULA_KOD_DOSTAWCY"
+                k_wsk = str(reg_dane.get("kod"))
+                t_znaleziony = next((x for x in baza if str(x.get("kod")) == k_wsk), None) if baza else None
+                return k_wsk, kod_faktura_clean, "REGULA_KOD_DOSTAWCY", t_znaleziony
 
     for reg_nazwa, reg_dane in mapowania.items():
         if _klucz_reguly(reg_nazwa) == nazwa_bez_og:
-            kod_wskazany = reg_dane.get("kod") if isinstance(reg_dane, dict) else reg_dane
-            return str(kod_wskazany), kod_faktura_clean, "REGULA"
+            k_wsk = str(reg_dane.get("kod") if isinstance(reg_dane, dict) else reg_dane)
+            t_znaleziony = next((x for x in baza if str(x.get("kod")) == k_wsk), None) if baza else None
+            return k_wsk, kod_faktura_clean, "REGULA", t_znaleziony
 
     # 3. Dopasowanie po nazwie w bazie PC-Market
     if baza:
@@ -531,12 +534,14 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
             indeks_bez_og = zbuduj_indeks_bez_diakrytykow(mapa_nazw)
 
         if nazwa_bez_og in indeks_bez_og:
-            return str(indeks_bez_og[nazwa_bez_og]), kod_faktura_clean, "DOKLADNE"
+            t = indeks_bez_og[nazwa_bez_og]
+            return str(t.get("kod") or t.get("kod_wew")), kod_faktura_clean, "DOKLADNE", t
 
         nazwa_bez_producenta = re.sub(r"/.*?/", "", nazwa_faktura_clean).strip()
         nazwa_czysta_og = usun_diakrytyki(normalizuj_nazwe(nazwa_bez_producenta))
         if nazwa_czysta_og in indeks_bez_og:
-            return str(indeks_bez_og[nazwa_czysta_og]), kod_faktura_clean, "DOKLADNE_BEZ_PROD"
+            t = indeks_bez_og[nazwa_czysta_og]
+            return str(t.get("kod") or t.get("kod_wew")), kod_faktura_clean, "DOKLADNE_BEZ_PROD", t
 
         if nazwa_bez_og and indeks_bez_og:
             szukana_fraza = nazwa_czysta_og if len(nazwa_czysta_og) >= 4 else nazwa_bez_og
@@ -546,17 +551,19 @@ def dopasuj_towar_z_bazy(nazwa_faktura: str, kod_faktura: str, baza: list[dict],
                 scorer=fuzz.token_sort_ratio
             )
             if wynik and wynik[1] >= PROG_ROZMYTY:
-                return str(indeks_bez_og[wynik[0]]), kod_faktura_clean, "ROZMYTE"
+                t = indeks_bez_og[wynik[0]]
+                return str(t.get("kod") or t.get("kod_wew")), kod_faktura_clean, "ROZMYTE", t
 
     # 4. Kod kreskowy EAN
     if czy_poprawny_ean(kod_faktura_clean):
-        return kod_faktura_clean, kod_faktura_clean, "EAN"
+        t_znaleziony = next((x for x in baza if kod_faktura_clean in x.get("kody_kreskowe", [])), None) if baza else None
+        return kod_faktura_clean, kod_faktura_clean, "EAN", t_znaleziony
 
     # 5. Indeks artykułu dostawcy
     if kod_faktura_clean and "?" not in kod_faktura_clean:
-        return kod_faktura_clean, kod_faktura_clean, "INDEKS_DOSTAWCY"
+        return kod_faktura_clean, kod_faktura_clean, "INDEKS_DOSTAWCY", None
 
-    return "", kod_faktura_clean, "BRAK"
+    return "", kod_faktura_clean, "BRAK", None
 
 
 def dopasuj_wszystkie_pozycje_w_tle(dane: dict, uzywa_bazy: bool, sciezka_bazy: str) -> tuple:
@@ -579,13 +586,47 @@ def dopasuj_wszystkie_pozycje_w_tle(dane: dict, uzywa_bazy: bool, sciezka_bazy: 
             kod_faktura = ""
             poz["kod"] = ""
 
-        kod_dop, _, pewnosc = dopasuj_towar_z_bazy(
+        kod_dop, _, pewnosc, t_baza = dopasuj_towar_z_bazy(
             nazwa, kod_faktura, baza, uzywa_bazy,
             mapowania=mapowania, indeks=indeks, indeks_bez_og=indeks_bez_og
         )
         poz["oryg_nazwa"] = nazwa
         poz["kod_dopasowany"] = kod_dop
         poz["pewnosc"] = pewnosc
+
+        # KASKADA USTALANIA CENY NETTO
+        ilosc_num = parsuj_kwote(poz.get("ilosc"))
+        if ilosc_num <= 0.0:
+            ilosc_num = 1.0
+            poz["ilosc"] = "1.0"
+            poz["ilosc_wymuszona"] = True
+
+        cena_num = parsuj_kwote(poz.get("cena_netto"))
+        wartosc_num = parsuj_kwote(poz.get("wartosc_netto"))
+        typ_ceny = "OCR"
+
+        if cena_num <= 0.0:
+            # 1. Z wartości netto na dokumencie
+            if wartosc_num > 0.0:
+                cena_num = round(wartosc_num / ilosc_num, 4)
+                typ_ceny = "OBLICZONA"
+            # 2. Z ceny ewidencyjnej w kartotece PC-Market
+            elif t_baza and parsuj_kwote(t_baza.get("cena_ew")) > 0.0:
+                cena_num = parsuj_kwote(t_baza.get("cena_ew"))
+                wartosc_num = round(cena_num * ilosc_num, 2)
+                typ_ceny = "BAZA"
+            # 3. Twardy bezpiecznik: 1 grosz
+            else:
+                cena_num = 0.01
+                wartosc_num = round(cena_num * ilosc_num, 2)
+                typ_ceny = "GROSZ"
+        else:
+            if wartosc_num <= 0.0:
+                wartosc_num = round(cena_num * ilosc_num, 2)
+
+        poz["cena_netto"] = f"{cena_num:.4f}"
+        poz["wartosc_netto"] = f"{wartosc_num:.2f}"
+        poz["typ_ceny"] = typ_ceny
         poz["ostrzezenia"] = ostrzezenia_pozycji(poz)
 
     status_sum, info_sum = weryfikuj_sumy_netto(dane)
@@ -723,12 +764,19 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
             continue
 
         jm_str = _t(p.get("j", p.get("jm")), "kg").lower()
-        ilosc_num = parsuj_liczbe(p.get("i", p.get("ilosc"))) or 0.0
+        ilosc_odczytana = parsuj_liczbe(p.get("i", p.get("ilosc")))
 
-        if jm_str in ("szt", "op", "szt.", "op."):
-            ilosc_str = str(int(round(ilosc_num))) if ilosc_num > 0 else _t(p.get("i", p.get("ilosc")))
+        ilosc_wymuszona = False
+        if ilosc_odczytana is None or ilosc_odczytana <= 0.0:
+            ilosc_wymuszona = True
+            ilosc_num = 1.0
+            ilosc_str = "1" if jm_str in ("szt", "op", "szt.", "op.") else "1.0"
         else:
-            ilosc_str = str(ilosc_num) if ilosc_num > 0 else _t(p.get("i", p.get("ilosc")))
+            ilosc_num = ilosc_odczytana
+            if jm_str in ("szt", "op", "szt.", "op."):
+                ilosc_str = str(int(round(ilosc_num)))
+            else:
+                ilosc_str = str(ilosc_num)
 
         cena_netto_str = _t(p.get("c", p.get("cena_netto")))
         wartosc_netto_str = _t(p.get("w", p.get("wartosc_netto")))
@@ -744,8 +792,10 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
             "vat": "",
             "jm": jm_str,
             "ilosc": ilosc_str,
+            "ilosc_wymuszona": ilosc_wymuszona,
             "cena_netto": cena_netto_str,
             "wartosc_netto": wartosc_netto_str,
+            "typ_ceny": "OCR"
         })
 
     if not pozycje:
@@ -763,12 +813,21 @@ def ostrzezenia_pozycji(poz: dict) -> list:
     ilosc = parsuj_liczbe(poz.get("ilosc"))
     cena = parsuj_liczbe(poz.get("cena_netto"))
     wartosc = parsuj_liczbe(poz.get("wartosc_netto"))
+    typ_ceny = poz.get("typ_ceny", "OCR")
 
-    if ilosc is None or ilosc <= 0:
-        ost.append("brak lub nieczytelna ilość")
-    if cena is None:
+    if poz.get("ilosc_wymuszona") or ilosc is None or ilosc <= 0:
+        ost.append("brak ilości na dokumencie (wstawiono domyślnie 1)")
+
+    if typ_ceny == "BAZA":
+        ost.append("brak ceny na dokumencie (pobrano cenę z bazy PC-Market)")
+    elif typ_ceny == "GROSZ":
+        ost.append("brak ceny na dokumencie i w bazie (wstawiono 0.01 zł)")
+    elif typ_ceny == "OBLICZONA":
+        ost.append("obliczono cenę jednostkową z wartości netto")
+    elif cena is None or cena <= 0:
         ost.append("nieczytelna cena netto")
-    if wartosc is None:
+
+    if wartosc is None or wartosc <= 0:
         ost.append("nieczytelna wartość netto")
 
     if ilosc and ilosc > 0 and cena is not None and wartosc is not None:
@@ -827,9 +886,25 @@ def generuj_tekst_edi(dane: dict) -> str:
                 kod_glowny = f"{kod_glowny}???????"
 
         jm = str(poz.get("jm") or "kg").lower().strip()
-        ilosc = formatuj_liczbe(parsuj_kwote(poz.get("ilosc")), 3, 3)
-        cena = "n" + formatuj_liczbe(parsuj_kwote(poz.get("cena_netto")), 2, 4)
-        wartosc = "n" + formatuj_liczbe(parsuj_kwote(poz.get("wartosc_netto")), 2, 4)
+
+        # Bezpiecznik ilości
+        ilosc_kwota = parsuj_kwote(poz.get("ilosc"))
+        if ilosc_kwota <= 0.0:
+            ilosc_kwota = 1.0
+
+        # Bezpiecznik ceny
+        cena_kwota = parsuj_kwote(poz.get("cena_netto"))
+        if cena_kwota <= 0.0:
+            cena_kwota = 0.01
+
+        # Bezpiecznik wartości
+        wartosc_kwota = parsuj_kwote(poz.get("wartosc_netto"))
+        if wartosc_kwota <= 0.0:
+            wartosc_kwota = round(ilosc_kwota * cena_kwota, 2)
+
+        ilosc = formatuj_liczbe(ilosc_kwota, 3, 3)
+        cena = "n" + formatuj_liczbe(cena_kwota, 2, 4)
+        wartosc = "n" + formatuj_liczbe(wartosc_kwota, 2, 4)
 
         linia = (
             f"Linia:Nazwa{{{nazwa}}}Kod{{{kod_glowny}}}Vat{{}}Jm{{{jm}}}"
@@ -844,18 +919,11 @@ def wyczysc_pliki_robocze() -> int:
     import glob
     usuniete = 0
     wzorce = [
-        # 1. Zdjęcia i przetworzone klatki graficzne
         "img_*.jpg", "foto_*.jpg", "crop_*.jpg", 
         "flt_*.jpg", "rot_*.jpg", "adj_*.jpg", 
         "preview_editor*.jpg",
-        
-        # 2. Eksporty dokumentów (Word, Excel, TXT)
         "dok_*.docx", "dok_*.xlsx", "dok_*.txt",
-        
-        # 3. Pliki wymiany magazynowej EDI
         "edi_*.txt", "*.edi",
-        
-        # 4. Pozostałości po transakcyjnym zapisie baz danych
         "*.tmp"
     ]
     for wzorzec in wzorce:

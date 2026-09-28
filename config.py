@@ -38,7 +38,11 @@ DOMYSLNA_KONFIGURACJA = {
     "profil_auto_kontrast": 1.2,
     "profil_auto_jasnosc": 1.05,
     "profil_auto_ostrosc": 1.4,
-    "profil_auto_kolor": "kolor"
+    "profil_auto_kolor": "kolor",
+    # Widoczność modułów w menu głównym (Hubie)
+    "pokaz_modul_pz": True,
+    "pokaz_modul_doc": True,
+    "pokaz_modul_skan": True
 }
 
 PUSTY_OBRAZ = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
