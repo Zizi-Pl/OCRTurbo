@@ -1,0 +1,31 @@
+name: Generuj Keystore
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generowanie klucza Keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore ocrturbo.keystore \
+            -alias ocrturbo_key \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "SuperTajneHaslo2026!" \
+            -keypass "SuperTajneHaslo2026!" \
+            -dname "CN=OCRTurbo, OU=App, O=Grela, L=Krasnystaw, ST=Lubelskie, C=PL"
+
+          echo "=== PONIŻEJ ZNAJDUJE SIĘ TWÓJ KLUCZ (ZAZNACZ I SKOPIUJ CAŁOŚĆ) ==="
+          base64 -w 0 ocrturbo.keystore
+          echo ""
+          echo "=== KONIEC KLUCZA ==="
+
+      - name: Zapisz plik jako artefakt do pobrania
+        uses: actions/upload-artifact@v4
+        with:
+          name: moj-plik-keystore
+          path: ocrturbo.keystore
