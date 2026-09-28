@@ -35,6 +35,7 @@ class UIManager:
         self._inicjalizuj_okno_mapowan()
         self._inicjalizuj_okno_ustawien()
         self._inicjalizuj_okno_weryfikacji()
+        self._inicjalizuj_okno_o_programie()
 
     def zamknij_kazdy_dialog(self, e=None):
         try:
@@ -765,6 +766,36 @@ class UIManager:
         self.sw_modul_doc.value = bool(konf.get("pokaz_modul_doc", True))
         self.sw_modul_skan.value = bool(konf.get("pokaz_modul_skan", True))
         self.bezpiecznie_otworz_dialog(self.dlg_ustawienia)
+
+    def _inicjalizuj_okno_o_programie(self):
+        self.dlg_o_programie = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.Icons.INFO, color=ft.Colors.GREEN_400, size=24),
+                ft.Text("O programie ocrTurbo", size=18, weight=ft.FontWeight.BOLD)
+            ], spacing=8),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("ocrTurbo v2.4.1", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_300),
+                    ft.Text("Mobilno-desktopowy skaner dokumentów i analizator faktur z generowaniem plików EDI dla PC-Market.", size=13),
+                    ft.Divider(color=ft.Colors.GREY_800),
+                    ft.Text("Główne możliwości:", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400),
+                    ft.Text("• Faktury / PZ z dopasowywaniem kodów bazy PC-Market", size=12),
+                    ft.Text("• Odczyt pism i tabel 1:1 z eksportem DOCX / XLSX", size=12),
+                    ft.Text("• Szybki skaner graficzny z filtrami B&W offline", size=12),
+                    ft.Text("• Hybrydowe AI: Google Gemini oraz lokalne LM Studio", size=12),
+                    ft.Divider(color=ft.Colors.GREY_800),
+                    ft.Text("Copyright © 2026 bonoluibart@gmail.com", size=11, color=ft.Colors.GREY_500),
+                ], tight=True, spacing=6),
+                width=400
+            ),
+            actions=[
+                ft.Button("Zamknij", on_click=lambda e: self.page.pop_dialog())
+            ]
+        )
+
+    def otworz_o_programie(self, e=None):
+        self.bezpiecznie_otworz_dialog(self.dlg_o_programie)
 
     def znajdz_nazwe_dla_kodu(self, kod_szukany: str, baza: list = None) -> str:
         if not kod_szukany:

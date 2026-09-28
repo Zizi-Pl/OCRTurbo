@@ -71,7 +71,19 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
                     ft.Text("ocrLmm Hub", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
                     ft.Text("Wybierz moduł roboczy", size=13, color=ft.Colors.GREY_400)
                 ], spacing=2),
-                ft.IconButton(ft.Icons.SETTINGS, tooltip="Ustawienia aplikacji", on_click=self.ui.otworz_ustawienia)
+                ft.Row([
+                    ft.IconButton(
+                        icon=ft.Icons.INFO_OUTLINE,
+                        icon_color=ft.Colors.GREEN_400,
+                        tooltip="O programie",
+                        on_click=self.ui.otworz_o_programie
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.SETTINGS,
+                        tooltip="Ustawienia aplikacji",
+                        on_click=self.ui.otworz_ustawienia
+                    )
+                ], spacing=4)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.Padding(12, 38, 12, 0)
         )

@@ -10,7 +10,7 @@ async def main(page: ft.Page):
     core.wyczysc_pliki_robocze()
 
     # Parametry strony i motywu
-    page.title = "OCRTurbo 3 in 1"
+    page.title = "ocrTurbo Mobilny"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
 
