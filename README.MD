@@ -1,6 +1,6 @@
 # ocrTurbo 📱📄
 
-[![Wersja: 2.4.0](https://img.shields.io/badge/Wersja-2.4.0-blue.svg)](#nowości-w-wersji-240)
+[![Wersja: 2.4.1](https://img.shields.io/badge/Wersja-2.4.1-blue.svg)](#nowości-w-wersji-241)
 [![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](#budowanie-wersji-android-apk)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](#budowanie-wersji-desktopowej-windows)
 [![Framework: Flet](https://img.shields.io/badge/Framework-Flet%200.85.3-00BCD4?logo=flutter&logoColor=white)](#architektura-interfejsu)
@@ -12,7 +12,7 @@ Aplikacja mobilno-desktopowa przeznaczona do automatycznego odczytu faktur dosta
 ---
 
 ## 📑 Spis treści
-- [Nowości w wersji 2.4.0](#-nowości-w-wersji-240)
+- [Nowości w wersji 2.4.1](#-nowości-w-wersji-241)
 - [Główne moduły](#-główne-moduły)
 - [Architektura projektu i opis plików](#-architektura-projektu-i-opis-plików)
 - [Silnik OCR i sztuczna inteligencja](#-silnik-ocr-i-sztuczna-inteligencja)
@@ -24,14 +24,19 @@ Aplikacja mobilno-desktopowa przeznaczona do automatycznego odczytu faktur dosta
 
 ---
 
-## 🌟 Nowości w wersji 2.4.0
+## 🌟 Nowości w wersji 2.4.1
 
+- **Pancerny bezpiecznik ilości pozycji:** Rozwiązanie problemu odrzucania linii przez PC-Market przy imporcie dokumentu EDI. Jeśli OCR nie rozpozna ilości lub zwróci wartość zerową/nieczytelną, system automatycznie wstawia bezpieczną wartość jednostkową (`1` dla `szt`/`op`, `1.0` dla `kg`) i oznacza pozycję ostrzeżeniem na liście weryfikacyjnej.
+- **Kaskada awaryjna wyceny pozycji:** Zabezpieczenie przed zerową ceną zakupu w pliku wymiany:
+  1. *Matematyka z faktury:* Automatyczne wyliczenie ceny jednostkowej z ilorazu `Wartość netto / Ilość`.
+  2. *Cena z bazy PC-Market:* Pobranie ceny ewidencyjnej (`cena_ew`) z rekordu kartoteki towarowej.
+  3. *Twardy bezpiecznik 1 grosza:* Podstawienie `0.01 zł` przy całkowitym braku danych na fakturze i w bazie, co gwarantuje bezbłędny import dokumentu w PC-Market bez wstrzymywania pracy.
+- **Dynamiczne zarządzanie widocznością modułów (Role pracownik / administrator):** W oknie Ustawień dodano przełączniki (`ft.Switch`) pozwalające włączać i wyłączać kafelki modułów: **Faktura / PZ**, **Dokument (DOC)** oraz **Skaner**. Umożliwia to skonfigurowanie telefonu pracownika jako prostego skanera graficznego (z ukrytą bazą towarową i rozliczeniami PZ), zachowując pełny kombajn na urządzeniu administratora.
+- **Odświeżenie ergonomii przycisku analizy PZ:** Główny przycisk startu analizy otrzymał czytelny, zielony kolor bazowy (`GREEN_800`), większy format (wysokość 52 px) oraz pogrubioną typografię pod kątem szybkiej obsługi jedną ręką w warunkach terenowych.
 - **Nowy edytor podglądu (`PełnyEdytorObrazu`):** Całkowita rezygnacja z niestabilnej kontrolki `InteractiveViewer` na rzecz natywnego, dwuosiowego przewijania (`ft.Row` + `ft.Column` ze scrollem `AUTO`). Pełna płynność i brak szarego ekranu na Windows 11 oraz urządzeniach z Androidem.
 - **Dopasowanie do pasków systemowych Androida:** Zwiększony dolny margines (48 px) skutecznie unoszący dolny pasek narzędzi ponad systemowy pasek nawigacyjny z trzema przyciskami.
-- **Dolna belka z ergonomicznymi ikonami:** Zastąpienie szerokich przycisków tekstowych dotykowymi kafelkami z ikonami (Anuluj, Cofnij, Kadruj/Zatwierdź, Wyślij), co zapobiega łamaniu wierszy i ucinkom na wąskich ekranach smartfonów.
-- **Szybki reset zoomu:** Wskaźnik skali pomiędzy lupkami jest teraz klikalny – jedno dotknięcie przywraca natychmiast zoom bazowy `1.0x`.
+- **Szybki reset zoomu:** Wskaźnik skali pomiędzy lupkami jest klikalny – jedno dotknięcie przywraca natychmiast zoom bazowy `1.0x`.
 - **Precyzyjne czyszczenie plików roboczych:** Rozszerzony mechanizm sprzątania katalogu roboczego o pliki eksportu Worda (`.docx`), Excela (`.xlsx`), unikalne pliki podglądu stemplowane czasem `preview_editor_*.jpg` oraz pliki transakcyjne `*.tmp`.
-- **Czysta kompilacja mobilna:** Usunięcie zależności kompilowanych ze źródeł C/C++ (`python-Levenshtein`, `pypdfium2`), co zapewnia bezproblemowe budowanie paczek APK przez GitHub Actions z silnikiem `serious-python`.
 
 ---
 
@@ -42,6 +47,7 @@ Aplikacja mobilno-desktopowa przeznaczona do automatycznego odczytu faktur dosta
 - Automatyczne parsowanie pozycji tabelarycznych: nazwa, waga/ilość, jednostka miary (`kg`, `szt`, `op`), ceny jednostkowe netto, stawki VAT oraz sumy kontrolne.
 - Inteligentne dopasowywanie kodów PLU / EAN na podstawie bazy towarowej oraz wyuczonych reguł i aliasów użytkownika.
 - Weryfikacja sum i różnic netto przed zatwierdzeniem i wygenerowaniem pliku magazynowego.
+- Zabezpieczenie integralności pliku EDI przed brakującymi wartościami ilości i cen.
 
 ### 2. Odczyt Dokumentu (Układ 1:1)
 - Przepisywanie pism, specyfikacji i umów z zachowaniem oryginalnego układu przestrzennego, wcięć oraz kolumn.
@@ -63,158 +69,15 @@ Struktura projektu została podzielona modularnie, rozdzielając logikę przetwa
 OCRTurbo/
 │
 ├── main.py                 # Punkt wejścia aplikacji, konfiguracja okna i cyklu życia
-├── config.py               # Konfiguracja, ścieżki systemowe, profile i persystencja JSON
-├── core.py                 # Silnik biznesowy, parsowanie EDI, fuzzy matching, czyszczenie
+├── config.py               # Konfiguracja, ścieżki systemowe, flagi modułów i persystencja JSON
+├── core.py                 # Silnik biznesowy, parsowanie EDI, fuzzy matching, bezpieczniki cen/ilości
 ├── image_processor.py      # Przetwarzanie obrazu w Pillow (obroty, filtry, kadrowanie)
 ├── image_viewer.py         # Pełnoekranowy edytor podglądu, zoom, kadrowanie i maski
 ├── converter.py            # Konwersja formatów wejściowych (schowek, PDF, zrzuty)
-├── ai_service.py           # Integracja z Google Gemini API oraz lokalnym LM Studio
+├── network.py              # Asynchroniczny klient HTTP (httpx), WoL oraz komunikacja z Gemini/LM Studio
 │
-├── views.py                # Menedżer widoków aplikacji (ViewsManager - nawigacja)
-├── ui.py                   # Menedżer okien dialogowych, powiadomień i pickerów (UIManager)
+├── views.py                # Menedżer widoków aplikacji (ViewsManager - nawigacja i widoczność kafelków)
+├── ui.py                   # Menedżer okien dialogowych, Ustawień modułów, edycji pozycji i pickerów
 ├── module_pz.py            # Logika i interfejs modułu Faktura / Przyjęcie Zewnętrzne (PZ)
 ├── module_doc.py           # Logika i interfejs modułu Dokument (układ 1:1, Word, Excel)
 └── module_scan.py          # Logika i interfejs modułu Szybki Skaner
-```
-
-### 🔍 Szczegółowy zakres odpowiedzialności plików:
-
-#### `main.py`
-- Inicjalizuje aplikację Flet, konfiguruje motyw ciemny (`DARK`) oraz zerowy padding okna.
-- Rejestruje systemowy serwis udostępniania (`ft.Share`).
-- Inicjalizuje instancje `FilePicker` (niezbędne w nowszych wersjach Flet poza `page.overlay`).
-- Monitoruje zdarzenie zmiany rozmiaru okna (`on_resized`), dynamicznie dopasowując kadr edytora obrazów bez zniekształcania proporcji.
-- Przed startem automatycznie uruchamia procedurę sprzątania pozostałości po poprzednich sesjach roboczych.
-
-#### `config.py`
-- Zarządza ścieżkami katalogu roboczego (`KATALOG_DANYCH`) odpowiednio dla systemów Windows oraz Android.
-- Wczytuje i zapisuje konfigurację aplikacji (`ocrlmm_mobile_config.json`): adresy IP LM Studio, klucze API Gemini, parametry Wake-on-LAN (MAC adres) oraz domyślne profile kontrastu/ostrości.
-
-#### `core.py`
-- **Fuzzy matching towarów:** Dwustopniowy algorytm łączenia pozycji z faktury z bazą PC-Market (`kartoteka_towarowa.json`). Błyskawiczne dopasowanie 1:1 słownikiem w RAM + rozmyte dopasowanie tokenowe (`thefuzz`) z progiem podobieństwa.
-- **Generowanie EDI:** Tworzy pliki wymiany magazynowej w standardzie kodowania `windows-1250` z zachowaniem specyficznych dla PC-Market nagłówków, kodów stawek VAT i sum kontrolnych.
-- **Sprzątanie (`wyczysc_pliki_robocze`):** Usuwa pliki tymczasowe zdjęć (`img_*`, `rot_*`, `crop_*`, `flt_*`, `preview_editor*`), dokumenty wyjściowe (`dok_*.docx`, `dok_*.xlsx`, `dok_*.txt`), pliki wymiany oraz pliki transakcyjne `.tmp`.
-
-#### `image_processor.py`
-- Operacje graficzne niskiego poziomu za pomocą biblioteki Pillow (PIL).
-- Skalowanie i tworzenie lekkich kopii podglądowych w celu zachowania maksymalnej płynności interfejsu.
-- Precyzyjne wycinanie fragmentów kadrów na podstawie procentowych koordynatów z interfejsu.
-- Filtry korekcyjne (kontrast, jasność, ostrość, progi czerni/bieli dla trybu dokumentowego).
-
-#### `image_viewer.py`
-- Komponent `PełnyEdytorObrazu` – pełnoekranowy widok manipulacji dokumentem przed wysłaniem do analizy.
-- Dwuosiowy kontener ze scrollem (`AUTO`), gwarantujący stabilne powiększanie bez błędów renderowania.
-- Własna implementacja gestów kadrowania (`GestureDetector`) z 4 narożnymi uchwytami i strefą przeciągania całego zaznaczenia.
-- Pasek kontroli zoomu z klikalnym napisem resetującym skalę do `1.0x` oraz dolna belka z dużymi przyciskami dotykowymi.
-
-#### `converter.py`
-- Normalizacja plików graficznych wprowadzanych do programu.
-- Obsługa wklejania obrazów bezpośrednio ze schowka systemowego (Windows/Android).
-- Bezpieczny mechanizm konwersji stron PDF na pliki graficzne JPG (jeśli w środowisku dostępna jest biblioteka renderująca).
-
-#### `ai_service.py`
-- Obsługa hybrydowego backendu sztucznej inteligencji:
-  - **Google Gemini API:** Obsługa modeli wizyjnych z wymuszeniem schematu odpowiedzi JSON (`response_schema`).
-  - **Lokalne LM Studio:** Obsługa modeli typu Qwen-VL po protokole kompatybilnym z OpenAI API.
-- Wysyłanie pakietów Magic Packet (Wake-on-LAN) do zdalnego uruchamiania stacji roboczej z modelami lokalnymi.
-
-#### `views.py`, `ui.py` oraz moduły funkcyjne (`module_*.py`)
-- **`views.py`:** Centralna nawigacja pomiędzy ekranami (Hub główny, Moduł PZ, Moduł Dokument, Skaner).
-- **`ui.py`:** Obsługa wyskakujących okien dialogowych (ustawienia, mapowanie kodów towarowych, postęp OCR).
-- **`module_pz.py`:** Tabela weryfikacji pozycji faktury, edycja cen, stawek VAT, ręczne przypisywanie towarów z bazy.
-- **`module_doc.py`:** Odczyt struktury pism urzędowych, eksport do `.docx` i `.xlsx`.
-- **`module_scan.py`:** Szybki notatnik graficzny i archiwizator dokumentów bez konieczności parsowania tekstu.
-
----
-
-## 🧠 Silnik OCR i sztuczna inteligencja
-
-Aplikacja wspiera hybrydowe przetwarzanie obrazu:
-- **Chmura:** Google Gemini API (`gemini-2.5-flash`) z precyzyjnym wymuszeniem schematu JSON, co eliminuje halucynacje i błędy formatowania.
-- **Lokalnie (Offline/LAN):** Serwer [LM Studio](https://lmstudio.ai/) z modelami wizyjnymi (np. Qwen-VL) i obsługą automatycznego wybudzania stacji roboczej przez **Wake-on-LAN (WoL)**.
-
----
-
-## 💾 Integracja z PC-Market
-
-- Eksport gotowych dokumentów magazynowych do formatu tekstowego **EDI (windows-1250)** akceptowanego przez PC-Market.
-- Moduł wyszukiwarki towarów w locie przeszukujący pliki bazy PC-Market.
-- Zapis powiązań nazw dostawcy z wewnętrznymi indeksami magazynu (`aliasy_ocr.json`).
-
----
-
-## 📦 Wymagania środowiskowe i użyte biblioteki
-
-Do uruchomienia i kompilacji projektu wymagane jest środowisko **Python >= 3.11**.
-
-### 📚 Kluczowe zależności i ich zastosowanie w aplikacji
-
-| Biblioteka | Wersja | Rola w projekcie |
-| :--- | :--- | :--- |
-| **`flet`** | `0.85.3` | Główny silnik interfejsu graficznego (UI) oparty na Flutterze. |
-| **`flet-camera`** | najnowsza | Natywna obsługa modułu aparatu fotograficznego na urządzeniach mobilnych (Android). |
-| **`httpx`** | najnowsza | Asynchroniczny klient HTTP do zapytań API (Google Gemini oraz lokalne LM Studio). |
-| **`pillow`** (PIL) | najnowsza | Kompresja, obracanie, nakładanie filtrów kontrastowych i precyzyjne kadrowanie pikseli. |
-| **`python-docx`** | najnowsza | Eksport rozpoznanego tekstu i układów tabelarycznych do formatu Microsoft Word (`.docx`). |
-| **`openpyxl`** | najnowsza | Generowanie i formatowanie arkuszy kalkulacyjnych Microsoft Excel (`.xlsx`). |
-| **`thefuzz`** | najnowsza | Algorytmy wyszukiwania rozmytego (fuzzy matching w czystym Pythonie) do łączenia nazw towarów z bazą PC-Market. |
-
----
-
-## 📦 Budowanie aplikacji
-
-### Budowanie wersji Android (APK)
-
-Projekt wykorzystuje narzędzie Flet CLI z silnikiem `serious-python`. Aby zachować możliwość aktualizacji zainstalowanej aplikacji bez konieczności jej odinstalowywania, należy zachować stały plik klucza (`keystore`) oraz sukcesywnie podbijać wersję w pliku konfiguracyjnym:
-
-1. Konfiguracja pliku `pyproject.toml`:
-```toml
-[project]
-name = "OCRTurbo"
-version = "2.4.0"
-description = "Skaner PZ do EDI i inne"
-requires-python = ">=3.11"
-dependencies = [
-    "flet==0.85.3",
-    "flet-camera",
-    "httpx",
-    "pillow",
-    "thefuzz",
-    "python-docx",
-    "openpyxl",
-]
-
-[tool.flet]
-org = "com.ocrlmm"
-product = "ocrLmm"
-company = "ocrLmm"
-copyright = "Copyright (C) 2026"
-
-[tool.flet.app]
-path = "."
-
-[tool.flet.android.permission]
-"android.permission.INTERNET" = true
-"android.permission.ACCESS_NETWORK_STATE" = true
-"android.permission.CAMERA" = true
-"android.permission.READ_MEDIA_IMAGES" = true
-"android.permission.READ_EXTERNAL_STORAGE" = true
-"android.permission.WRITE_EXTERNAL_STORAGE" = true
-```
-
-2. Kompilacja pakietu APK:
-```bash
-flet build apk --release
-```
-
-### Budowanie wersji Desktopowej (Windows)
-
-Aplikację można spakować do samodzielnego pliku wykonywalnego `.exe` przy użyciu Fleta lub PyInstallera:
-
-```bash
-flet build windows
-```
-lub za pomocą PyInstallera:
-```bash
-pyinstaller --noconsole --onefile --name "ocrTurbo" main.py
-```
