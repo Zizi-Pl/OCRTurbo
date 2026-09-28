@@ -1,6 +1,6 @@
 [project]
 name = "OCRTurbo"
-version = "2.4.2"
+version = "2.4.3"
 description = "Skaner PZ do EDI i inne"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,8 +19,8 @@ org = "com.ocrlmm"
 product = "ocrLmm"
 company = "ocrLmm"
 copyright = "Copyright (C) 2026"
-build_version = "2.4.2"
-build_number = 242
+build_version = "2.4.3"
+build_number = 243
 
 [tool.flet.app]
 path = "."
