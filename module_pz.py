@@ -31,20 +31,20 @@ class ModulPZMixin:
             on_anuluj=self._zamknij_pelny_ekran_pz
         )
 
-        # 3. Kontrolki głównego ekranu PZ (nowoczesny ft.Button bez DeprecationWarning)
+        # 3. Kontrolki głównego ekranu PZ
         self.btn_akcja_analiza_pz = ft.Button(
-			content=ft.Row([
-				ft.Icon(ft.Icons.PLAY_ARROW, size=24), 
-				ft.Text("Rozpocznij analizę PZ", size=16, weight=ft.FontWeight.BOLD)
-			], alignment=ft.MainAxisAlignment.CENTER),
-			visible=False, height=52,
-			style=ft.ButtonStyle(
-				bgcolor=ft.Colors.GREEN_800, 
-				color=ft.Colors.WHITE, 
-				shape=ft.RoundedRectangleBorder(radius=8)
-			),
-			on_click=lambda e: asyncio.create_task(self.przetworz_plik_pz(self.aktualne_zdjecie_pz["sciezka"]))
-		)
+            content=ft.Row([
+                ft.Icon(ft.Icons.PLAY_ARROW, size=24), 
+                ft.Text("Rozpocznij analizę PZ", size=16, weight=ft.FontWeight.BOLD)
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            visible=False, height=52,
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.GREEN_800, 
+                color=ft.Colors.WHITE, 
+                shape=ft.RoundedRectangleBorder(radius=8)
+            ),
+            on_click=lambda e: asyncio.create_task(self.przetworz_plik_pz(self.aktualne_zdjecie_pz["sciezka"]))
+        )
 
         self.btn_usun_zdjecie_pz = ft.Button(
             content=ft.Row([ft.Icon(ft.Icons.DELETE_OUTLINE, size=18), ft.Text("Usuń wybrane zdjęcie", size=12)], alignment=ft.MainAxisAlignment.CENTER),
@@ -188,7 +188,6 @@ class ModulPZMixin:
 
     def ustaw_nowy_obraz_pz(self, sciezka: str):
         try:
-            # Standaryzacja: PNG -> RGB JPEG z białym tłem, PDF -> render do JPEG
             nowa_sciezka = converter.standaryzuj_plik_wejsciowy(sciezka)
         except Exception as e_conv:
             self.ui.pokaz_okno_bledu("Błąd konwersji pliku", f"Nie udało się przetworzyć pliku: {e_conv}")
@@ -207,13 +206,11 @@ class ModulPZMixin:
         if not self.aktualne_zdjecie_pz["sciezka"] or not os.path.exists(self.aktualne_zdjecie_pz["sciezka"]):
             return
 
-        # 1. NAJPIERW pokaż kontener edytora
         self.kolumna_glowna_pz.visible = False
         self.edytor_pelny_pz.visible = True
         self.page.scroll = None
         self.page.update()
 
-        # 2. DOPIERO TERAZ wczytaj obraz
         self.edytor_pelny_pz.wczytaj_obraz(self.aktualne_zdjecie_pz["sciezka"])
 
     def _zamknij_pelny_ekran_pz(self):
@@ -446,35 +443,29 @@ class ModulPZMixin:
             waga_b64_kb = round(len(base64_image) * 0.75 / 1024, 1)
             self.ui.dopisz_log(f"📷 Obraz wejściowy: {w_px}x{h_px}px | Waga Base64: {waga_b64_kb} KB (oryginał: {waga_oryg_kb} KB)", ft.Colors.GREY_400)
 
+            # Precyzyjny prompt z zachowaniem minimalnego narzutu tokenów
             prompt = (
                 "Rola: Działasz jako precyzyjny, deterministyczny system OCR wyspecjalizowany w polskich dokumentach "
-                "magazynowo-handlowych (faktury VAT, WZ, PZ). Ekstrahuj dane WYŁĄCZNIE na podstawie tego, co widoczne "
-                "na obrazie. Zakaz zgadywania i konfabulacji: jeśli dana wartość jest nieczytelna, zamazana albo nie "
-                "występuje na dokumencie, zwróć dla niej pusty ciąg znaków \"\" zamiast zgadywać.\n\n"
+                "magazynowo-handlowych (faktury VAT, WZ, PZ). Najwyższy priorytet mają: PEŁNA NAZWA TOWARU, ILOŚĆ oraz ewentualny KOD EAN. "
+                "Ekstrahuj dane WYŁĄCZNIE na podstawie tego, co widoczne na obrazie. Zakaz zgadywania i konfabulacji: jeśli dana wartość "
+                "jest nieczytelna, zamazana albo nie występuje na dokumencie, zwróć dla niej pusty ciąg znaków \"\".\n\n"
                 "1. Nagłówek i kontrahenci:\n"
-                "   - nr: pełny numer dokumentu z nagłówka. Ignoruj puste pola powiązane, np. niewypełnione 'Realizacja faktury nr:'.\n"
+                "   - nr: pełny numer dokumentu z nagłówka. Ignoruj puste pola powiązane, np. 'Realizacja faktury nr:'.\n"
                 "   - dt: data wystawienia/sprzedaży w formacie DD.MM.RRRR.\n"
-                "   - w, o: nazwa oraz 10-cyfrowy NIP (same cyfry, bez 'PL', spacji i myślników) odpowiednio dla "
-                "sprzedawcy/wystawcy (w) i nabywcy/odbiorcy (o). NIP pobieraj WYŁĄCZNIE z bloku danych adresowych firmy. "
-                "Nigdy nie myl NIP-u z numerem konta, BDO ani numerem faktury. Jeśli NIP jednej ze stron jest nieczytelny, "
-                "NIE kopiuj tam NIP-u drugiej strony — wstaw pusty ciąg \"\".\n\n"
-                "2. Pozycje towarowe (tabela główna, klucz \"p\") – ZWRACAJ ŚCISŁĄ UWAGĘ NA NAGŁÓWKI KOLUMN:\n"
-                "   - n: pełna nazwa towaru z kolumny 'Towar' / 'Nazwa'.\n"
-                "   - k: kod towaru. POBIERAJ WYŁĄCZNIE z kolumn oznaczonych jako 'EAN', 'Kod', 'CN', 'PKWiU', 'Indeks'. "
-                "Jeśli brak kodu lub kolumna jest pusta, wstaw \"\". "
-                "BEZWZGLĘDNY ZAKAZ: NIGDY nie pobieraj wartości z kolumn 'Partia', 'Nr partii', 'Seria', 'Batch', 'Lot', 'L/N'!\n"
+                "   - w, o: nazwa oraz 10-cyfrowy NIP (same cyfry) odpowiednio dla sprzedawcy (w) i nabywcy (o). "
+                "NIP pobieraj WYŁĄCZNIE z bloku danych adresowych firm. Jeśli NIP jednej ze stron jest nieczytelny, wstaw \"\".\n\n"
+                "2. Pozycje towarowe (tabela główna, klucz \"p\") – ZWRACAJ ŚCISŁĄ UWAGĘ NA NAZWĘ, ILOŚĆ I KOD:\n"
+                "   - n: DOKŁADNA, PEŁNA nazwa towaru z kolumny 'Towar' / 'Nazwa' (najwyższy priorytet, przepisz bez skrótów).\n"
+                "   - i: ilość z kolumny 'Ilość' (dla 'kg' waga z kropką dziesiętną, dla 'szt' i 'op' liczba całkowita).\n"
                 "   - j: jednostka miary DOKŁADNIE z kolumny 'JM' ('kg', 'szt', 'op').\n"
-                "   - i: ilość z kolumny 'Ilość' (dla 'szt' i 'op' liczba całkowita, dla 'kg' waga z kropką dziesiętną).\n"
-                "   - c: ostateczna CENA JEDNOSTKOWA NETTO po rabacie. ZAWSZE z kolumny 'Cena netto'.\n"
-                "   - w: WARTOŚĆ NETTO TEJ POZYCJI z kolumny 'Wartość netto'.\n"
-                "   ⚠️ KATEGORYCZNY ZAKAZ POBIERANIA WARTOŚCI BRUTTO:\n"
-                "       * W polach 'c' i 'w' mają znaleźć się WYŁĄCZNIE kwoty NETTO.\n"
-                "       * NIE WOLNO pobierać wartości z kolumn 'Wartość brutto' ani 'Cena brutto'!\n"
-                "       * Zwróć uwagę: kolumna 'Wartość brutto' często znajduje się na samym końcu po prawej stronie tabeli — nie myl jej z wcześniejszą kolumną 'Wartość netto'!\n"
-                "       * Równość matematyczna w pozycji musi się zgadzać: ilość 'i' pomnożona przez cenę netto 'c' musi równać się wartości netto 'w' (i * c = w).\n\n"
+                "   - k: KOD TOWARU. POBIERAJ WYŁĄCZNIE, gdy na dokumencie znajduje się jednoznaczny kod kreskowy EAN lub jawny kod towaru.\n"
+                "        BEZWZGLĘDNY ZAKAZ: Jeśli kolumna zawiera numer partii ('Partia', 'Nr partii', 'Batch', 'Lot', 'L/N', ciąg powtarzający się w wierszach) "
+                "albo kody klasyfikacji CN / PKWiU (np. 10.13.14.0 lub 160100) — WSTAW PUSTY CIĄG ZNAKÓW \"\".\n"
+                "   - c: ostateczna CENA JEDNOSTKOWA NETTO po rabacie z kolumny 'Cena netto'.\n"
+                "   - w: WARTOŚĆ NETTO TEJ POZYCJI z kolumny 'Wartość netto' (ilość * cena = wartość). Zakaz pobierania kwot brutto!\n\n"
                 "3. Podsumowanie:\n"
-                "   - sn: całkowita wartość NETTO całego dokumentu, z wiersza sumarycznego 'Razem' pod tabelą rozliczenia podatku.\n"
-                "   - dz: ostateczna kwota do zapłaty / suma brutto (jeśli występuje na dokumencie, w przeciwnym razie \"\").\n\n"
+                "   - sn: całkowita wartość NETTO całego dokumentu z wiersza sumarycznego 'Razem'.\n"
+                "   - dz: ostateczna kwota do zapłaty / suma brutto (jeśli występuje, w przeciwnym razie \"\").\n\n"
                 "Formatowanie: liczby z kropką jako separatorem. Zwróć WYŁĄCZNIE czysty obiekt JSON bez znaczników markdown:\n"
                 "{\n"
                 "  \"nr\": \"\",\n"
@@ -574,12 +565,14 @@ class ModulPZMixin:
                 self.ui.dopisz_log(f"Błąd parsowania JSON. Odpowiedź surowa:\n{odp_tekst[:250]}...", ft.Colors.RED)
                 raise ValueError("Model nie zwrócił poprawnego formatu JSON.")
 
+            # Przekształcenie surowych kluczy z OCR na jednolity standard słownika
             dane = core.oczysc_odpowiedz_llm(dane)
 
-            wystawca_nazwa = (dane.get("w") or {}).get("n") or "Nieznany"
-            wystawca_nip = (dane.get("w") or {}).get("nip") or "Brak"
-            nr_dok = dane.get("nr") or "Brak numeru"
-            pozycje_ocr = dane.get("p") or []
+            # Poprawione odwołania do znormalizowanych kluczy
+            wystawca_nazwa = (dane.get("wystawca") or {}).get("nazwa") or "Nieznany"
+            wystawca_nip = (dane.get("wystawca") or {}).get("nip") or "Brak"
+            nr_dok = dane.get("nr_dok") or "Brak numeru"
+            pozycje_ocr = dane.get("pozycje") or []
 
             self.ui.dopisz_log(f"📄 Faktura: {nr_dok} | Kontrahent: {wystawca_nazwa} (NIP: {wystawca_nip})", ft.Colors.GREEN)
             self.ui.dopisz_log(f"📦 Liczba odczytanych pozycji: {len(pozycje_ocr)}", ft.Colors.WHITE)
@@ -590,10 +583,11 @@ class ModulPZMixin:
                 None, core.dopasuj_wszystkie_pozycje_w_tle, dane, uzywa_bazy, aktualna_baza_sciezka
             )
 
-            pozycje_koncowe = dane.get("p") or []
-            dopasowane_z_bazy = sum(1 for p in pozycje_koncowe if p.get("z_bazy"))
+            # Poprawione odpytywanie o pozycje końcowe ze znormalizowanego klucza 'pozycje'
+            pozycje_koncowe = dane.get("pozycje") or []
+            dopasowane_z_bazy = sum(1 for p in pozycje_koncowe if p.get("kod_dopasowany"))
             skutecznosc_proc = round((dopasowane_z_bazy / len(pozycje_koncowe) * 100), 1) if pozycje_koncowe else 0
-            kody_wagowe = sum(1 for p in pozycje_koncowe if str(p.get("k", "")).startswith("29"))
+            kody_wagowe = sum(1 for p in pozycje_koncowe if str(p.get("kod_dopasowany", "")).startswith("29"))
 
             self.ui.dopisz_log(
                 f"🎯 Baza PC-Market: {dopasowane_z_bazy}/{len(pozycje_koncowe)} dopasowanych ({skutecznosc_proc}%) | Kody wagowe: {kody_wagowe}",
