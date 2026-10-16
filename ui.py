@@ -146,6 +146,13 @@ class UIManager:
         return bool(self.page.web) or self.page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
 
     async def zamknij_pelny_ekran_aparatu(self, e=None):
+        # 1. Wymuś sprzętowe wyłączenie latarki, by zresetować wewnętrzny stan komponentu Flet
+        if getattr(self, "lampa_wlaczona", False) and self.kamera_obiektyw:
+            try:
+                await self.kamera_obiektyw.set_flash_mode(fc.FlashMode.OFF)
+            except Exception:
+                pass
+
         self.lampa_wlaczona = False
         try:
             await self.kamera_obiektyw.dispose()
@@ -285,6 +292,13 @@ class UIManager:
                 self.kamera_obiektyw.initialize(wybrana, fc.ResolutionPreset.HIGH, enable_audio=False),
                 timeout=30
             )
+            
+            # 2. Synchronizuj sprzęt z interfejsem przy starcie
+            try:
+                await self.kamera_obiektyw.set_flash_mode(fc.FlashMode.OFF)
+            except Exception:
+                pass
+                
             self.dopisz_log("Kamera pełnoekranowa zainicjalizowana.", ft.Colors.GREEN)
 
         except Exception as err:
