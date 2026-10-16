@@ -1119,6 +1119,7 @@ def wyczysc_pliki_robocze() -> int:
         "dok_*.docx",
         "dok_*.xlsx",
         "dok_*.txt",
+        "doc_*.txt",
         "edi_*.txt",
         "*.edi",
         "*.tmp",

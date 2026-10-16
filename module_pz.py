@@ -316,7 +316,7 @@ class ModulPZMixin:
         tresc_edi = core.generuj_tekst_edi(dane)
 
         nr_dok = "".join(c for c in str(dane.get("nr_dok") or "") if c.isalnum() or c in ("-", "_")) or "faktura"
-        nazwa_pliku = f"edi_{nr_dok}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        nazwa_pliku = f"doc_{nr_dok}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         sciezka_edi = os.path.join(config.KATALOG_DANYCH, nazwa_pliku)
 
         try:
