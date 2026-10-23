@@ -919,7 +919,7 @@ class UIManager:
             ], spacing=8),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("ocrTurbo v2.4.6", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_300),
+                    ft.Text("ocrTurbo v2.4.7", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_300),
                     ft.Text("Mobilno-desktopowy skaner dokumentów i analizator faktur z generowaniem plików EDI dla PC-Market.", size=13),
                     ft.Divider(color=ft.Colors.GREY_800),
                     ft.Text("Główne możliwości:", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400),
@@ -1418,6 +1418,11 @@ class UIManager:
                 self.lbl_podsumowanie_weryfikacji.color = ft.Colors.AMBER_400
         else:
             self.lbl_podsumowanie_weryfikacji.color = ft.Colors.CYAN_300
+
+        ostrzezenia_dok = dane.get("ostrzezenia_dokumentu") or []
+        if ostrzezenia_dok:
+            tekst += "".join(f"\n⚠️ {o}" for o in ostrzezenia_dok)
+            self.lbl_podsumowanie_weryfikacji.color = ft.Colors.AMBER_400
 
         self.lbl_podsumowanie_weryfikacji.value = tekst
 
