@@ -1139,6 +1139,7 @@ def wyczysc_pliki_robocze() -> int:
     wzorce = [
         "img_*.jpg",
         "foto_*.jpg",
+        "skan_*.pdf",
         "crop_*.jpg",
         "flt_*.jpg",
         "rot_*.jpg",

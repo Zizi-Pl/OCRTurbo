@@ -1,0 +1,20 @@
+[project]
+name = "flet-doc-scanner"
+version = "0.1.0"
+description = "Skaner dokumentów Google ML Kit (Android) jako usługa Flet"
+requires-python = ">=3.10"
+dependencies = [
+    "flet==0.85.3",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Część Fluttera (Dart) musi trafić do paczki - flet build szuka jej w
+# site-packages/flutter/<nazwa_pakietu>.
+[tool.setuptools.package-data]
+"flutter.flet_doc_scanner" = ["**/*"]

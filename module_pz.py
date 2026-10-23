@@ -194,6 +194,7 @@ class ModulPZMixin:
             return
 
         self.aktualne_zdjecie_pz["sciezka"] = nowa_sciezka
+        self.aktualne_zdjecie_pz["strony"] = None
         self.podglad_obrazu_pz.src = None
         self.podglad_obrazu_pz.src = nowa_sciezka
 
@@ -201,6 +202,36 @@ class ModulPZMixin:
         self.status_text_pz.value = "Plik gotowy. Kliknij w podgląd, aby dopasować kadr lub użyć suwaków."
         self.status_text_pz.color = ft.Colors.CYAN_ACCENT
         self.page.update()
+
+    async def przyjmij_skany_pz(self, obrazy: list):
+        """Strony ze skanera Google: od razu do analizy (bez edytora)."""
+        self.aktualne_zdjecie_pz["sciezka"] = obrazy[0]
+        self.aktualne_zdjecie_pz["strony"] = list(obrazy)
+        self.podglad_obrazu_pz.src = None
+        self.podglad_obrazu_pz.src = obrazy[0]
+        self.ustaw_stan_przycisku_foto_pz(True)
+        await self.przetworz_plik_pz(obrazy[0])
+
+    def _strony_do_analizy_pz(self, sciezka_obrazu: str) -> list:
+        """Wszystkie strony skanu, jeśli analizujemy skan; inaczej jedna strona."""
+        strony = self.aktualne_zdjecie_pz.get("strony") or []
+        if strony and strony[0] == sciezka_obrazu:
+            return list(strony)
+        return [sciezka_obrazu]
+
+    def _usun_pliki_stron_pz(self):
+        pliki = set(self.aktualne_zdjecie_pz.get("strony") or [])
+        if self.aktualne_zdjecie_pz.get("sciezka"):
+            pliki.add(self.aktualne_zdjecie_pz["sciezka"])
+        for sciezka_pliku in pliki:
+            if sciezka_pliku and os.path.exists(sciezka_pliku):
+                try:
+                    os.remove(sciezka_pliku)
+                    self.ui.dopisz_log(f"Usunięto plik roboczy: {os.path.basename(sciezka_pliku)}")
+                except Exception as err:
+                    self.ui.dopisz_log(f"Nie udało się usunąć pliku: {err}", ft.Colors.AMBER)
+        self.aktualne_zdjecie_pz["sciezka"] = None
+        self.aktualne_zdjecie_pz["strony"] = None
 
     def otworz_pelny_podglad_pz(self):
         if not self.aktualne_zdjecie_pz["sciezka"] or not os.path.exists(self.aktualne_zdjecie_pz["sciezka"]):
@@ -220,6 +251,9 @@ class ModulPZMixin:
         self.page.update()
 
     async def _zatwierdz_edycje_i_wyslij_pz(self, sciezka_po_edycji: str):
+        strony = self.aktualne_zdjecie_pz.get("strony")
+        if strony:
+            strony[0] = sciezka_po_edycji  # edytor zmienia 1. stronę skanu
         self.aktualne_zdjecie_pz["sciezka"] = sciezka_po_edycji
         self.podglad_obrazu_pz.src = None
         self.podglad_obrazu_pz.src = sciezka_po_edycji
@@ -228,15 +262,7 @@ class ModulPZMixin:
         await self.przetworz_plik_pz(sciezka_po_edycji)
 
     def usun_wybrane_zdjecie_pz(self, e=None):
-        sciezka_pliku = self.aktualne_zdjecie_pz.get("sciezka")
-        if sciezka_pliku and os.path.exists(sciezka_pliku):
-            try:
-                os.remove(sciezka_pliku)
-                self.ui.dopisz_log(f"Usunięto plik roboczy: {os.path.basename(sciezka_pliku)}")
-            except Exception as err:
-                self.ui.dopisz_log(f"Nie udało się usunąć pliku: {err}", ft.Colors.AMBER)
-
-        self.aktualne_zdjecie_pz["sciezka"] = None
+        self._usun_pliki_stron_pz()
         self.podglad_obrazu_pz.src = None
         self.podglad_obrazu_pz.src = config.PUSTY_OBRAZ
         self.ustaw_stan_przycisku_foto_pz(False)
@@ -354,17 +380,11 @@ class ModulPZMixin:
         except Exception as err_share:
             self.ui.dopisz_log(f"Nie udało się otworzyć okna udostępniania: {err_share}", ft.Colors.AMBER)
 
-        sciezka_foto = self.aktualne_zdjecie_pz.get("sciezka")
-        if sciezka_foto and os.path.exists(sciezka_foto):
-            try:
-                os.remove(sciezka_foto)
-                self.ui.dopisz_log(f"Automatycznie usunięto przetworzone zdjęcie: {os.path.basename(sciezka_foto)}")
-            except Exception as err:
-                self.ui.dopisz_log(f"Nie udało się usunąć zdjęcia po EDI: {err}", ft.Colors.AMBER)
+        # Automatyczne usunięcie przetworzonych zdjęć (wszystkich stron)
+        self._usun_pliki_stron_pz()
 
         self.stan_weryfikacji["dane"] = None
         self.btn_wroc_weryfikacja_pz.visible = False
-        self.aktualne_zdjecie_pz["sciezka"] = None
         self.podglad_obrazu_pz.src = None
         self.podglad_obrazu_pz.src = config.PUSTY_OBRAZ
         self.ustaw_stan_przycisku_foto_pz(False)
@@ -372,7 +392,8 @@ class ModulPZMixin:
 
     async def przetworz_plik_pz(self, sciezka_obrazu: str):
         if self.blokada_analizy: return
-        if not sciezka_obrazu or not os.path.exists(sciezka_obrazu):
+        strony = self._strony_do_analizy_pz(sciezka_obrazu) if sciezka_obrazu else []
+        if not strony or not all(os.path.exists(s) for s in strony):
             self.ui.pokaz_okno_bledu("Brak pliku", "Wskazane zdjęcie nie istnieje na dysku. Wybierz plik ponownie.")
             self.usun_wybrane_zdjecie_pz(None)
             return
@@ -405,7 +426,7 @@ class ModulPZMixin:
             self.page.update()
 
             loop = asyncio.get_running_loop()
-            waga_oryg_kb = round(os.path.getsize(sciezka_obrazu) / 1024, 1)
+            waga_oryg_kb = round(sum(os.path.getsize(s) for s in strony) / 1024, 1)
 
             if not uzywa_chmury:
                 ip_lokalne = aktualny_konfig.get("local_ip", "192.168.1.154").strip()
@@ -430,18 +451,21 @@ class ModulPZMixin:
                 )
 
             wymiar_obrazu = aktualny_konfig.get("image_resolution", 1800)
-            base64_image = await loop.run_in_executor(
-                None, image_processor.kompresuj_do_wysylki, sciezka_obrazu, wymiar_obrazu
-            )
-            
+            obrazy_base64 = []
+            for strona in strony:
+                obrazy_base64.append(await loop.run_in_executor(
+                    None, image_processor.kompresuj_do_wysylki, strona, wymiar_obrazu
+                ))
+
             try:
-                with Image.open(sciezka_obrazu) as img:
+                with Image.open(strony[0]) as img:
                     w_px, h_px = img.size
             except Exception:
                 w_px, h_px = "?", "?"
 
-            waga_b64_kb = round(len(base64_image) * 0.75 / 1024, 1)
-            self.ui.dopisz_log(f"📷 Obraz wejściowy: {w_px}x{h_px}px | Waga Base64: {waga_b64_kb} KB (oryginał: {waga_oryg_kb} KB)", ft.Colors.GREY_400)
+            waga_b64_kb = round(sum(len(b) for b in obrazy_base64) * 0.75 / 1024, 1)
+            opis_stron = f"{len(strony)} str. | " if len(strony) > 1 else ""
+            self.ui.dopisz_log(f"📷 Obraz wejściowy: {opis_stron}{w_px}x{h_px}px | Waga Base64: {waga_b64_kb} KB (oryginał: {waga_oryg_kb} KB)", ft.Colors.GREY_400)
 
             # Precyzyjny prompt z zachowaniem minimalnego narzutu tokenów
             prompt = (
@@ -479,6 +503,19 @@ class ModulPZMixin:
                 "  \"dz\": \"\"\n"
                 "}"
             )
+            if len(strony) > 1:
+                prompt += (
+                    f"\n\nUWAGA: Dokument ma {len(strony)} strony przekazane jako kolejne obrazy (w kolejności stron). "
+                    "Zwróć JEDEN obiekt JSON dla całego dokumentu: pozycje ze wszystkich stron połącz w jedną listę \"p\" "
+                    "w kolejności występowania, bez powtarzania tych samych pozycji (np. przeniesionych 'z przeniesienia'). "
+                    "Nagłówek (nr, dt, w, o) bierz z pierwszej strony, a sumy (sn, dz) z wiersza 'Razem' na ostatniej stronie."
+                )
+            # Więcej stron = dłuższa lista pozycji w odpowiedzi
+            limit_tokenow = 8192 if len(strony) == 1 else 16384
+            obrazy_tresc = [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                for b64 in obrazy_base64
+            ]
 
             if uzywa_chmury:
                 klucz = aktualny_konfig.get("gemini_api_key", "").strip()
@@ -492,13 +529,10 @@ class ModulPZMixin:
                     "response_format": {"type": "json_object"},
                     "messages": [{
                         "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]
+                        "content": [{"type": "text", "text": prompt}] + obrazy_tresc
                     }],
                     "temperature": 0.0,
-                    "max_tokens": 8192
+                    "max_tokens": limit_tokenow
                 }
                 cel_logu = f"Google Cloud ({model_gemini})"
             else:
@@ -521,14 +555,11 @@ class ModulPZMixin:
                         },
                         {
                             "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                            ]
+                            "content": [{"type": "text", "text": prompt}] + obrazy_tresc
                         }
                     ],
                     "temperature": 0.0,
-                    "max_tokens": 8192,
+                    "max_tokens": limit_tokenow,
                     "chat_template_kwargs": {"enable_thinking": False}
                 }
                 cel_logu = f"LM Studio ({wybrany_model} @ {ip}:{port})"

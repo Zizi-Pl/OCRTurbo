@@ -29,9 +29,10 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
         self.blokada_analizy = False
         self.ostatnia_sciezka_edi = {"sciezka": None}
 
-        self.aktualne_zdjecie_pz = {"sciezka": None}
-        self.zdjecie_dok = {"sciezka": None}
-        self.zdjecie_skan = {"sciezka": None}
+        # "strony" - wszystkie strony ze skanera Google (sciezka == strony[0])
+        self.aktualne_zdjecie_pz = {"sciezka": None, "strony": None}
+        self.zdjecie_dok = {"sciezka": None, "strony": None}
+        self.zdjecie_skan = {"sciezka": None, "strony": None, "pdf": None}
 
         # Inicjalizacja komponentów modułów
         self._inicjalizuj_modul_pz()
@@ -39,6 +40,17 @@ class ViewsManager(ModulPZMixin, ModulDocMixin, ModulScanMixin):
         self._inicjalizuj_modul_skaner()
         self._inicjalizuj_menu_glowne()
         self.odswiez_widocznosc_modulow(aktualizuj_strone=False)
+
+    async def przyjmij_skany(self, obrazy: list, pdf, modul: str):
+        """Strony ze skanera Google trafiają od razu do właściwego modułu."""
+        if not obrazy:
+            return
+        if modul == "pz":
+            await self.przyjmij_skany_pz(obrazy)
+        elif modul in ("dok", "dokument"):
+            await self.przyjmij_skany_dok(obrazy)
+        elif modul in ("skan", "skaner"):
+            self.przyjmij_skany_skan(obrazy, pdf)
 
     def przypisz_zrobione_foto(self, sciezka: str, modul: str):
         if modul == "pz":

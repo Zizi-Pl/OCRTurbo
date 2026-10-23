@@ -10,6 +10,7 @@ import flet_camera as fc
 import config
 import core
 import network
+import skaner_google
 
 
 class UIManager:
@@ -210,9 +211,44 @@ class UIManager:
             self.dopisz_log(f"Błąd migawki: {err}", ft.Colors.RED)
             self.pokaz_okno_bledu("Błąd aparatu", f"Nie udało się zrobić zdjęcia: {err}")
 
+    async def _skanuj_skanerem_google(self, modul: str) -> bool:
+        """Próbuje użyć skanera Google. Zwraca True, jeśli sprawa jest
+        załatwiona (zeskanowano albo użytkownik anulował), False - gdy trzeba
+        przejść na zwykły aparat."""
+        if not skaner_google.dostepny(self.page):
+            return False
+        try:
+            # W module Skaner dodatkowo PDF ze wszystkimi stronami do udostępnienia
+            wynik = await skaner_google.skanuj(self.page, pdf=modul in ("skaner", "skan"))
+        except Exception as err:
+            self.dopisz_log(f"Skaner Google: błąd ({err}) - uruchamiam zwykły aparat.", ft.Colors.AMBER)
+            return False
+
+        if wynik is None:
+            return False
+        if wynik.status == "ok":
+            self.dopisz_log(f"📄 Skaner Google: zeskanowano {len(wynik.obrazy)} str.", ft.Colors.GREEN)
+            if self.views_manager and hasattr(self.views_manager, "przyjmij_skany"):
+                await self.views_manager.przyjmij_skany(wynik.obrazy, wynik.pdf, modul)
+            return True
+        if wynik.status == "anulowano":
+            self.dopisz_log("Anulowano skanowanie.", ft.Colors.GREY_400)
+            return True
+
+        self.dopisz_log(
+            f"Skaner Google niedostępny ({wynik.blad or wynik.status}) - uruchamiam zwykły aparat.",
+            ft.Colors.AMBER,
+        )
+        return False
+
     async def otworz_aparat_dla(self, modul: str):
         self.cel_aparatu["modul"] = modul
 
+        # 1. Systemowy skaner Google (wykrywanie krawędzi, wiele stron)
+        if await self._skanuj_skanerem_google(modul):
+            return
+
+        # 2. Zapasowo: dotychczasowy aparat / wybór pliku
         if not self.aparat_obslugiwany():
             self.dopisz_log("Aparat działa tylko na Android/iOS. Wybór z pliku...", ft.Colors.AMBER)
             picker_foto = self.pickery.get("foto")
@@ -883,7 +919,7 @@ class UIManager:
             ], spacing=8),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("ocrTurbo v2.4.3", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_300),
+                    ft.Text("ocrTurbo v2.4.6", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_300),
                     ft.Text("Mobilno-desktopowy skaner dokumentów i analizator faktur z generowaniem plików EDI dla PC-Market.", size=13),
                     ft.Divider(color=ft.Colors.GREY_800),
                     ft.Text("Główne możliwości:", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400),

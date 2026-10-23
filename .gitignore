@@ -38,3 +38,8 @@ scalony_kod.txt
 
 # Instalacja pip -e
 *.egg-info/
+
+# Skany PDF ze skanera Google
+skan_*.pdf
+# Artefakty budowania rozszerzenia
+rozszerzenia/*/build/

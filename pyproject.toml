@@ -1,29 +1,45 @@
 [project]
 name = "OCRTurbo"
-version = "2.4.5"
+version = "2.4.6"
 description = "Skaner PZ do EDI i inne"
 requires-python = ">=3.11"
 dependencies = [
     "flet==0.85.3",
-    "flet-camera",
+    # Wersja zgodna z flet 0.85.3 (nowsze flet-camera wymagają flet 1.x)
+    "flet-camera==0.85.3",
     "httpx",
     "pillow",
     "thefuzz",
     "python-docx",
     "openpyxl",
     "pypdf",
+    # Skaner dokumentów Google ML Kit - rozszerzenie w rozszerzenia/flet-doc-scanner
+    "flet-doc-scanner",
 ]
+
+# "pip install -e ." instaluje tylko zależności - aplikację pakuje flet build.
+# Bez tego setuptools traktuje foldery OLD/ i rozszerzenia/ jak pakiety i przerywa.
+[tool.setuptools]
+packages = []
 
 [tool.flet]
 org = "com.OCRTurbo"
 product = "OCRTurbo"
 company = "OCRTurbo"
 copyright = "Copyright (C) 2026"
-build_version = "2.4.5"
-build_number = 245
+build_version = "2.4.6"
+build_number = 246
+# Lokalne rozszerzenie jest instalowane ze źródeł (nie ma go na PyPI)
+source_packages = ["flet-doc-scanner"]
+
+# Lokalne rozszerzenie (ścieżka względem katalogu projektu)
+[tool.flet.dev_packages]
+flet-doc-scanner = "rozszerzenia/flet-doc-scanner"
 
 [tool.flet.app]
 path = "."
+# Nie pakujemy do APK źródeł rozszerzenia ani starego kodu
+exclude = ["rozszerzenia", "OLD", ".github"]
 
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true

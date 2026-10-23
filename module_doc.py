@@ -13,7 +13,7 @@ from image_viewer import PełnyEdytorObrazu
 
 class ModulDocMixin:
     def _inicjalizuj_modul_dok(self):
-        self.zdjecie_dok = {"sciezka": None}
+        self.zdjecie_dok = {"sciezka": None, "strony": None}
         self.ostatni_wynik_dok = {"tekst": ""}
 
     def _inicjalizuj_modul_dokument(self):
@@ -187,6 +187,7 @@ class ModulDocMixin:
         nowa_sciezka = image_processor.przygotuj_obraz_wejsciowy(sciezka, prefiks="img_dok")
 
         self.zdjecie_dok["sciezka"] = nowa_sciezka
+        self.zdjecie_dok["strony"] = None
         self.podglad_dok.src = None
         self.podglad_dok.src = nowa_sciezka
 
@@ -194,6 +195,15 @@ class ModulDocMixin:
         self.status_dok.value = "Zdjęcie gotowe. Kliknij w podgląd, aby dopasować kadr lub użyć suwaków."
         self.status_dok.color = ft.Colors.CYAN_ACCENT
         self.page.update()
+
+    async def przyjmij_skany_dok(self, obrazy: list):
+        """Strony ze skanera Google: od razu do odczytu (bez edytora)."""
+        self.zdjecie_dok["sciezka"] = obrazy[0]
+        self.zdjecie_dok["strony"] = list(obrazy)
+        self.podglad_dok.src = None
+        self.podglad_dok.src = obrazy[0]
+        self.ustaw_stan_foto_dok(True)
+        await self.analizuj_dokument_dok(None)
 
     def otworz_pelny_podglad_dok(self):
         if not self.zdjecie_dok["sciezka"] or not os.path.exists(self.zdjecie_dok["sciezka"]):
@@ -215,6 +225,9 @@ class ModulDocMixin:
         self.page.update()
 
     async def _zatwierdz_edycje_i_wyslij_dok(self, sciezka_po_edycji: str):
+        strony = self.zdjecie_dok.get("strony")
+        if strony:
+            strony[0] = sciezka_po_edycji  # edytor zmienia 1. stronę skanu
         self.zdjecie_dok["sciezka"] = sciezka_po_edycji
         self.podglad_dok.src = None
         self.podglad_dok.src = sciezka_po_edycji
@@ -223,15 +236,19 @@ class ModulDocMixin:
         await self.analizuj_dokument_dok(None)
 
     def usun_wybrane_zdjecie_dok(self):
-        sciezka_pliku = self.zdjecie_dok.get("sciezka")
-        if sciezka_pliku and os.path.exists(sciezka_pliku):
-            try:
-                os.remove(sciezka_pliku)
-                self.ui.dopisz_log(f"Usunięto plik: {os.path.basename(sciezka_pliku)}")
-            except Exception as err:
-                self.ui.dopisz_log(f"Błąd usuwania pliku: {err}", ft.Colors.AMBER)
+        pliki = set(self.zdjecie_dok.get("strony") or [])
+        if self.zdjecie_dok.get("sciezka"):
+            pliki.add(self.zdjecie_dok["sciezka"])
+        for sciezka_pliku in pliki:
+            if os.path.exists(sciezka_pliku):
+                try:
+                    os.remove(sciezka_pliku)
+                    self.ui.dopisz_log(f"Usunięto plik: {os.path.basename(sciezka_pliku)}")
+                except Exception as err:
+                    self.ui.dopisz_log(f"Błąd usuwania pliku: {err}", ft.Colors.AMBER)
 
         self.zdjecie_dok["sciezka"] = None
+        self.zdjecie_dok["strony"] = None
         self.podglad_dok.src = None
         self.podglad_dok.src = config.PUSTY_OBRAZ
         self.ustaw_stan_foto_dok(False)
@@ -264,7 +281,17 @@ class ModulDocMixin:
 
         loop = asyncio.get_running_loop()
         sciezka_do_analizy = self.zdjecie_dok["sciezka"]
-        waga_oryg_kb = round(os.path.getsize(sciezka_do_analizy) / 1024, 1)
+        strony = self.zdjecie_dok.get("strony") or []
+        if not (strony and strony[0] == sciezka_do_analizy):
+            strony = [sciezka_do_analizy]
+        strony = [s for s in strony if os.path.exists(s)]
+        if not strony:
+            self.pasek_dok.visible = False
+            self.btn_start_dok.disabled = False
+            self.ui.pokaz_okno_bledu("Brak pliku", "Wskazane zdjęcie nie istnieje na dysku. Wybierz plik ponownie.")
+            self.page.update()
+            return
+        waga_oryg_kb = round(sum(os.path.getsize(s) for s in strony) / 1024, 1)
 
         prompt_dok = (
             "Rola: Działasz jako bezbłędny system transkrypcji OCR dokumentów handlowych i magazynowych.\n"
@@ -279,6 +306,13 @@ class ModulDocMixin:
             "3. Format wyjściowy:\n"
             "   - Zwróć wyłącznie czysty tekst i tabele. Zakaz bloków ```markdown, wstępów i komentarzy."
         )
+        if len(strony) > 1:
+            prompt_dok += (
+                f"\n4. Dokument wielostronicowy:\n"
+                f"   - Otrzymujesz {len(strony)} strony jako kolejne obrazy (w kolejności stron).\n"
+                "   - Przepisz każdą stronę po kolei, a przed treścią każdej strony wstaw osobną linię "
+                "'--- Strona N ---' (N = numer strony)."
+            )
 
         try:
             cfg = config.wczytaj_konfiguracje()
@@ -314,11 +348,20 @@ class ModulDocMixin:
             except Exception:
                 w_px, h_px = "?", "?"
 
-            base64_image = await loop.run_in_executor(
-                None, image_processor.kompresuj_do_wysylki, sciezka_do_analizy, wymiar
-            )
-            waga_b64_kb = round(len(base64_image) * 0.75 / 1024, 1)
-            self.ui.dopisz_log(f"📷 Obraz wejściowy: {w_px}x{h_px}px | Waga Base64: {waga_b64_kb} KB (oryginał: {waga_oryg_kb} KB)", ft.Colors.GREY_400)
+            obrazy_base64 = []
+            for strona in strony:
+                obrazy_base64.append(await loop.run_in_executor(
+                    None, image_processor.kompresuj_do_wysylki, strona, wymiar
+                ))
+            waga_b64_kb = round(sum(len(b) for b in obrazy_base64) * 0.75 / 1024, 1)
+            opis_stron = f"{len(strony)} str. | " if len(strony) > 1 else ""
+            self.ui.dopisz_log(f"📷 Obraz wejściowy: {opis_stron}{w_px}x{h_px}px | Waga Base64: {waga_b64_kb} KB (oryginał: {waga_oryg_kb} KB)", ft.Colors.GREY_400)
+
+            obrazy_tresc = [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                for b64 in obrazy_base64
+            ]
+            limit_tokenow = 8192 if len(strony) == 1 else 16384
 
             if uzywa_chmury:
                 model_nazwa = cfg.get("gemini_model", "gemini-2.5-flash")
@@ -326,9 +369,9 @@ class ModulDocMixin:
                 headers = {"Authorization": f"Bearer {cfg.get('gemini_api_key', '')}", "Content-Type": "application/json"}
                 payload = {
                     "model": model_nazwa,
-                    "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_dok}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
+                    "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_dok}] + obrazy_tresc}],
                     "temperature": 0.0,
-                    "max_tokens": 8192
+                    "max_tokens": limit_tokenow
                 }
                 cel_logu = f"Google Cloud ({model_nazwa})"
             else:
@@ -339,7 +382,7 @@ class ModulDocMixin:
                     headers["Authorization"] = f"Bearer {cfg.get('local_api_key')}"
                 payload = {
                     "model": model_nazwa,
-                    "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_dok}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
+                    "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_dok}] + obrazy_tresc}],
                     "temperature": 0.0,
                     "chat_template_kwargs": {"enable_thinking": False}
                 }
