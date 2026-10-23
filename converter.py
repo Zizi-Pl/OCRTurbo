@@ -54,95 +54,136 @@ def konwertuj_obraz_do_rgb_jpeg(sciezka_lub_obraz, prefiks: str = "img_in") -> s
             img.close()
 
 
+# Minimalny dłuższy bok osadzonej grafiki, aby uznać ją za skan całej strony
+# (a nie np. logo w nagłówku faktury).
+MIN_BOK_SKANU_PX = 900
+# Ile znaków tekstu na stronie oznacza PDF wygenerowany przez program (nie skan).
+MIN_ZNAKOW_TEKSTU = 80
+
+
+def _renderuj_pdf_pypdfium2(sciezka_pdf: str, strony, dpi: int) -> list[str]:
+    import pypdfium2 as pdfium
+
+    wynik = []
+    pdf = pdfium.PdfDocument(sciezka_pdf)
+    try:
+        scale = dpi / 72.0
+        for nr in strony:
+            if nr >= len(pdf):
+                break
+            pil_image = pdf[nr].render(scale=scale).to_pil()
+            wynik.append(konwertuj_obraz_do_rgb_jpeg(pil_image, prefiks=f"img_pdf_p{nr+1}"))
+    finally:
+        pdf.close()
+    return wynik
+
+
+def _renderuj_pdf_fitz(sciezka_pdf: str, strony, dpi: int) -> list[str]:
+    import fitz
+
+    wynik = []
+    doc = fitz.open(sciezka_pdf)
+    try:
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        for nr in strony:
+            if nr >= len(doc):
+                break
+            pix = doc[nr].get_pixmap(matrix=mat, alpha=False)
+            sciezka_wyjsciowa = _generuj_sciezke_wyjsciowa(prefiks=f"img_pdf_p{nr+1}")
+            pix.save(sciezka_wyjsciowa)
+            wynik.append(sciezka_wyjsciowa)
+    finally:
+        doc.close()
+    return wynik
+
+
+def _wyciagnij_skan_pypdf(sciezka_pdf: str, strony) -> list[str]:
+    """Wyciąga NAJWIĘKSZĄ osadzoną grafikę ze strony (skan faktury).
+
+    pypdf nie potrafi renderować stron, więc na Androidzie obsłużymy tylko PDF-y
+    będące skanami. Dla PDF-ów wygenerowanych przez program fakturujący (tekst
+    wektorowy + ewentualnie małe logo) zgłaszamy czytelny błąd zamiast wysyłać
+    do OCR samo logo.
+    """
+    from pypdf import PdfReader
+
+    wynik = []
+    reader = PdfReader(sciezka_pdf)
+    for nr in strony:
+        if nr >= len(reader.pages):
+            break
+        page = reader.pages[nr]
+
+        najwiekszy = None
+        najwieksze_pole = 0
+        for img_obj in page.images:
+            try:
+                pil_img = Image.open(io.BytesIO(img_obj.data))
+                pil_img.load()
+            except Exception as err:
+                print(f"Błąd odczytu grafiki ze strony {nr+1}: {err}")
+                continue
+            pole = pil_img.width * pil_img.height
+            if pole > najwieksze_pole:
+                najwiekszy, najwieksze_pole = pil_img, pole
+
+        ma_skan = najwiekszy is not None and max(najwiekszy.size) >= MIN_BOK_SKANU_PX
+        if ma_skan:
+            wynik.append(konwertuj_obraz_do_rgb_jpeg(najwiekszy, prefiks=f"img_pdf_p{nr+1}"))
+            continue
+
+        try:
+            tekst = (page.extract_text() or "").strip()
+        except Exception:
+            tekst = ""
+        if len(tekst) >= MIN_ZNAKOW_TEKSTU:
+            raise ValueError(
+                "Ten PDF został wygenerowany przez program (zawiera tekst, a nie skan), "
+                "a na tym urządzeniu nie da się go zamienić na obraz.\n\n"
+                "Otwórz PDF, zrób zrzut ekranu faktury i wybierz zrzut w aplikacji."
+            )
+        if najwiekszy is not None:
+            # Mały obraz i brak tekstu - lepsze to niż nic.
+            wynik.append(konwertuj_obraz_do_rgb_jpeg(najwiekszy, prefiks=f"img_pdf_p{nr+1}"))
+    return wynik
+
+
 def konwertuj_pdf_do_jpg(sciezka_pdf: str, numer_strony: int = 0, dpi: int = 200) -> list[str]:
     """
-    Wyciąga lub renderuje strony dokumentu PDF do plików graficznych JPEG.
-    W pierwszej kolejności używa czysto pythonowej biblioteki 'pypdf' (działa na Androidzie).
-    Jeśli pypdf nie jest dostępny, próbuje pypdfium2 lub pymupdf (fitz).
+    Zamienia strony dokumentu PDF na pliki graficzne JPEG.
+
+    Kolejność:
+    1. pypdfium2 / pymupdf - pełne renderowanie strony (komputer stacjonarny),
+    2. pypdf - czysty Python (Android): wyciąga skan osadzony na stronie.
     """
     if not os.path.exists(sciezka_pdf):
         raise FileNotFoundError(f"Plik PDF nie istnieje: {sciezka_pdf}")
 
-    wygenerowane_pliki = []
+    def strony(liczba):
+        return range(liczba) if numer_strony < 0 else [numer_strony]
 
-    # 1. Metoda główna dla Androida: pypdf (czysty Python bez bibliotek C++)
+    # 1. Pełne renderowanie (działa dla każdego PDF-a)
+    for renderer, modul in ((_renderuj_pdf_pypdfium2, "pypdfium2"), (_renderuj_pdf_fitz, "fitz")):
+        try:
+            __import__(modul)
+        except ImportError:
+            continue
+        # Liczba stron nie jest znana bez otwarcia - renderer sam pomija nadmiarowe.
+        return renderer(sciezka_pdf, strony(10_000), dpi)
+
+    # 2. Android: pypdf (bez renderowania)
     try:
-        from pypdf import PdfReader
-
-        reader = PdfReader(sciezka_pdf)
-        liczba_stron = len(reader.pages)
-        strony_do_obrobki = range(liczba_stron) if numer_strony < 0 else [numer_strony]
-
-        for nr in strony_do_obrobki:
-            if nr >= liczba_stron:
-                break
-            page = reader.pages[nr]
-
-            # Wyciągamy obrazy osadzone na stronie (skany faktur)
-            if page.images:
-                for img_idx, img_obj in enumerate(page.images):
-                    try:
-                        pil_img = Image.open(io.BytesIO(img_obj.data))
-                        sciezka_zapisu = konwertuj_obraz_do_rgb_jpeg(
-                            pil_img, prefiks=f"img_pdf_p{nr+1}_{img_idx+1}"
-                        )
-                        wygenerowane_pliki.append(sciezka_zapisu)
-                    except Exception as err:
-                        print(f"Błąd odczytu grafiki ze strony {nr+1}: {err}")
-
-        if wygenerowane_pliki:
-            return wygenerowane_pliki
+        import pypdf  # noqa: F401
     except ImportError:
-        pass
-
-    # 2. Fallback na pypdfium2 (np. na komputerze stacjonarnym)
-    try:
-        import pypdfium2 as pdfium
-
-        pdf = pdfium.PdfDocument(sciezka_pdf)
-        liczba_stron = len(pdf)
-        strony_do_obrobki = range(liczba_stron) if numer_strony < 0 else [numer_strony]
-        scale = dpi / 72.0
-
-        for nr in strony_do_obrobki:
-            if nr >= liczba_stron:
-                break
-            page = pdf[nr]
-            pil_image = page.render(scale=scale).to_pil()
-            sciezka_zapisu = konwertuj_obraz_do_rgb_jpeg(pil_image, prefiks=f"img_pdf_p{nr+1}")
-            wygenerowane_pliki.append(sciezka_zapisu)
-
-        pdf.close()
-        return wygenerowane_pliki
-    except ImportError:
-        pass
-
-    # 3. Fallback na pymupdf/fitz
-    try:
-        import fitz
-
-        doc = fitz.open(sciezka_pdf)
-        strony = range(len(doc)) if numer_strony < 0 else [numer_strony]
-        zoom = dpi / 72.0
-        mat = fitz.Matrix(zoom, zoom)
-
-        for idx in strony:
-            if idx >= len(doc):
-                break
-            page = doc[idx]
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            sciezka_wyjsciowa = _generuj_sciezke_wyjsciowa(prefiks=f"img_pdf_p{idx+1}")
-            pix.save(sciezka_wyjsciowa)
-            wygenerowane_pliki.append(sciezka_wyjsciowa)
-        doc.close()
-        return wygenerowane_pliki
-    except ImportError:
-        pass
-
-    raise RuntimeError(
-        "Do obsługi plików PDF wymagana jest biblioteka 'pypdf' (lub 'pypdfium2' / 'pymupdf'). "
-        "Upewnij się, że 'pypdf' znajduje się w pliku pyproject.toml."
-    )
+        raise RuntimeError(
+            "Do obsługi plików PDF wymagana jest biblioteka 'pypdf' (lub 'pypdfium2' / 'pymupdf'). "
+            "Upewnij się, że 'pypdf' znajduje się w pliku pyproject.toml."
+        )
+    wynik = _wyciagnij_skan_pypdf(sciezka_pdf, strony(10_000))
+    if not wynik:
+        raise ValueError("W pliku PDF nie znaleziono strony ze skanem dokumentu.")
+    return wynik
 
 
 def standaryzuj_plik_wejsciowy(sciezka_pliku: str) -> str:

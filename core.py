@@ -321,11 +321,13 @@ def importuj_baze_z_excela(sciezka_xlsx: str) -> tuple[list[dict], int, int]:
     header = []
     towary_z_paczki = []
 
-    for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
-        if row_idx == 0:
-            continue
-        if not header and any(c and "Nazwa" in str(c) for c in row):
-            header = [str(c).strip() if c is not None else "" for c in row]
+    for row in ws.iter_rows(values_only=True):
+        if not header:
+            komorki = [str(c).strip() if c is not None else "" for c in row]
+            # Wiersz nagłówka musi mieć dokładnie kolumny "Nazwa" i "Kod"
+            # (tytuł arkusza w pierwszym wierszu zostanie pominięty).
+            if "Nazwa" in komorki and "Kod" in komorki:
+                header = komorki
             continue
         if not header:
             continue
@@ -343,11 +345,10 @@ def importuj_baze_z_excela(sciezka_xlsx: str) -> tuple[list[dict], int, int]:
 
         kody_kreskowe = []
         kod_wew = kod
-        kod_czysty = normalizuj_kod_porownawczy(kod)
 
         if "?" in kod or kod.startswith("29") or kod.startswith("28"):
             kody_kreskowe.append(kod)
-            kod_wew = kod_czysty[2:] if len(kod_czysty) >= 6 else kod_czysty
+            kod_wew = _kod_wewnetrzny(kod)
         elif len(kod) == 13 and kod.isdigit():
             kody_kreskowe.append(kod)
 
@@ -412,6 +413,15 @@ def importuj_baze_z_excela(sciezka_xlsx: str) -> tuple[list[dict], int, int]:
     return pelna_kartoteka, dopisane, zaktualizowane
 
 
+def _kod_wewnetrzny(kod: str) -> str:
+    """Kod wewnętrzny PC-Market: dla kodów wagowych (28/29 lub z maską ?)
+    obcina 2-cyfrowy prefiks, np. '290123?????' -> '0123'."""
+    kod_czysty = normalizuj_kod_porownawczy(kod)
+    if "?" in kod or kod_czysty.startswith(("28", "29")):
+        return kod_czysty[2:] if len(kod_czysty) >= 6 else kod_czysty
+    return kod
+
+
 def zbuduj_indeks_nazw(baza: list[dict]) -> dict:
     mapa_nazw = {}
     for t in baza:
@@ -460,8 +470,19 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
         return []
 
     if sciezka.lower().endswith(".xlsx"):
-        towary, _, _ = importuj_baze_z_excela(sciezka)
-        return towary
+        # Excel importujemy do kartoteki JSON tylko, gdy jest nowszy od niej.
+        # Wcześniej plik był parsowany (i kartoteka nadpisywana) przy każdym
+        # odczycie bazy - przy starcie, każdej regule i każdej analizie.
+        try:
+            kartoteka_aktualna = os.path.exists(KARTOTEKA_FILE) and (
+                os.path.getmtime(KARTOTEKA_FILE) >= os.path.getmtime(sciezka)
+            )
+        except OSError:
+            kartoteka_aktualna = False
+        if not kartoteka_aktualna:
+            towary, _, _ = importuj_baze_z_excela(sciezka)
+            return towary
+        sciezka = KARTOTEKA_FILE
 
     if sciezka.lower().endswith(".json"):
         with _BLOKADA_CACHE:
@@ -517,11 +538,7 @@ def wczytaj_baze_pcmarket(sciezka: str = None) -> list[dict]:
                             towary.append({
                                 "nazwa": nazwa,
                                 "kod": kod,
-                                "kod_wew": (
-                                    kod.split("?")[0].replace("29", "")
-                                    if "?" in kod
-                                    else kod
-                                ),
+                                "kod_wew": _kod_wewnetrzny(kod),
                                 "kody_kreskowe": kody_kreskowe,
                                 "jm": "kg",
                                 "vat": "5",
@@ -674,17 +691,22 @@ def dopasuj_towar_z_bazy(
                 return str(t.get("kod")), kod_faktura_clean, "WAGA_KOD", t
 
     # PRIORYTET 5: Indeks artykułu dostawcy (jeśli nie jest kodem wagowym z ?)
+    # Gdy baza jest wczytana, przyjmujemy go TYLKO, jeśli dokładnie taki kod
+    # istnieje w PC-Market. Inaczej indeks dostawcy mógłby przypadkiem pokryć
+    # się z kodem zupełnie innego towaru i PZ trafiłby na zły towar.
     if (
         kod_faktura_clean
         and "?" not in kod_faktura_clean
         and not kod_faktura_clean.startswith(("28", "29"))
     ):
-        return (
-            kod_faktura_clean,
-            kod_faktura_clean,
-            "INDEKS_DOSTAWCY",
-            None,
-        )
+        if not baza:
+            return kod_faktura_clean, kod_faktura_clean, "INDEKS_DOSTAWCY", None
+        for t in baza:
+            if kod_faktura_clean in (
+                str(t.get("kod") or "").strip(),
+                str(t.get("kod_wew") or "").strip(),
+            ) or kod_faktura_clean in t.get("kody_kreskowe", []):
+                return str(t.get("kod")), kod_faktura_clean, "INDEKS_DOSTAWCY", t
 
     return "", kod_faktura_clean, "BRAK", None
 
@@ -696,10 +718,7 @@ def dopasuj_wszystkie_pozycje_w_tle(
     indeks = None
     if baza:
         with _BLOKADA_CACHE:
-            if (
-                _CACHE_BAZY.get("sciezka") == sciezka_bazy
-                and _CACHE_BAZY.get("indeks")
-            ):
+            if _CACHE_BAZY.get("towary") is baza and _CACHE_BAZY.get("indeks"):
                 indeks = _CACHE_BAZY["indeks"]
         if indeks is None:
             indeks = zbuduj_indeks_nazw(baza)
@@ -1040,6 +1059,15 @@ def weryfikuj_sumy_netto(dane: dict) -> tuple[str, str]:
     return "OK", f"Zgodność sumy netto: {suma_obliczona:.2f} zł"
 
 
+def _pole_edi(tekst: str) -> str:
+    """Klamry są separatorami pól w linii EDI PC-Market - zamieniamy je na
+    nawiasy okrągłe, a znaki nowej linii na spacje."""
+    return (
+        str(tekst).replace("{", "(").replace("}", ")")
+        .replace("\r", " ").replace("\n", " ")
+    )
+
+
 def generuj_tekst_edi(dane: dict) -> str:
     pozycje = [p for p in (dane.get("pozycje") or []) if isinstance(p, dict)]
     wyst = dane.get("wystawca") or {}
@@ -1051,7 +1079,7 @@ def generuj_tekst_edi(dane: dict) -> str:
     linie = [
         "TypPolskichLiter:LA",
         "TypDok:PZ",
-        f"NrDok:{dane.get('nr_dok') or ''}",
+        f"NrDok:{_pole_edi(dane.get('nr_dok') or '')}",
         f"Data:{dane.get('data') or datetime.now().strftime('%d.%m.%Y')}",
         "Magazyn:MAGAZYN",
         f"NIPWystawcy:{nip_wyst}",
@@ -1059,12 +1087,12 @@ def generuj_tekst_edi(dane: dict) -> str:
     ]
 
     for poz in pozycje:
-        nazwa = (
+        nazwa = _pole_edi(
             str(poz.get("oryg_nazwa") or poz.get("nazwa") or "").strip().upper()
         )
-        kod_glowny = str(
+        kod_glowny = _pole_edi(str(
             poz.get("kod_dopasowany") or poz.get("kod") or ""
-        ).strip()
+        ).strip())
 
         if kod_glowny.startswith(("28", "29")):
             if "?" in kod_glowny:

@@ -64,9 +64,16 @@ def wczytaj_konfiguracje() -> dict:
 
 def zapisz_konfiguracje(konf: dict) -> None:
     """Zapisuje bieżący słownik konfiguracji do pliku JSON."""
+    # Zapis atomowy: najpierw plik tymczasowy, potem podmiana. Jeśli Android
+    # zabije aplikację w trakcie zapisu, stara konfiguracja (z kluczem API)
+    # zostaje nienaruszona zamiast uszkodzonego pliku.
+    tymczasowy = CONFIG_FILE + ".tmp"
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        with open(tymczasowy, "w", encoding="utf-8") as f:
             json.dump(konf, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tymczasowy, CONFIG_FILE)
     except Exception as e:
         print(f"Błąd zapisu konfiguracji: {e}")
 

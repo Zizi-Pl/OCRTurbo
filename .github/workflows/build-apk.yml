@@ -3,6 +3,10 @@ name: Zbuduj Flet APK
 on:
   workflow_dispatch:
 
+# Workflow tylko czyta kod - nie potrzebuje praw zapisu do repozytorium.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -46,23 +50,50 @@ jobs:
             cp .github/assets/app_icon.png assets/icon.png
           fi
 
-      - name: Przygotowanie klucza Keystore
+      # Bez poprawnego klucza Flet po cichu podpisuje APK losowym kluczem debug,
+      # przez co kazda aktualizacja wymaga odinstalowania aplikacji. Dlatego
+      # przerywamy build, jesli ktoregos sekretu brakuje.
+      - name: Sprawdzenie sekretow podpisu
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+          brak=""
+          for nazwa in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!nazwa}" ]; then brak="$brak $nazwa"; fi
+          done
+          if [ -n "$brak" ]; then
+            echo "::error::Brak sekretow w Settings > Secrets and variables > Actions:$brak"
+            exit 1
+          fi
+
+      - name: Przygotowanie klucza Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
 
       - name: Budowanie APK dla Androida z podpisem
         env:
           CI: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FLET_ANDROID_KEYSTORE_PATH: release.keystore
-          FLET_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          FLET_ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          FLET_ANDROID_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          # Nazwy zmiennych zgodne z flet-cli 0.85.x (flet build --help)
+          FLET_ANDROID_SIGNING_KEY_STORE: ${{ runner.temp }}/release.keystore
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           yes | flet build apk --project "OCRTurbo" --description "Skaner PZ do EDI i inne" --arch arm64-v8a -v
+
+      - name: Usuniecie klucza z dysku runnera
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
 
       - name: Zapisanie pliku APK jako Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ocrLmm-Android-APK
+          name: OCRTurbo-Android-APK
           path: build/apk/*.apk
+          if-no-files-found: error
