@@ -18,6 +18,10 @@ async def main(page: ft.Page):
     serwis_udostepniania = ft.Share()
     page.services.append(serwis_udostepniania)
 
+    # Skaner dokumentów Google (ML Kit) - tylko Android z Usługami Google Play
+    import skaner_google
+    skaner_google.zarejestruj(page)
+
     # W Flet 0.85+ FilePicker NIE trafia do page.overlay!
     picker_foto = ft.FilePicker()
     picker_bazy = ft.FilePicker()

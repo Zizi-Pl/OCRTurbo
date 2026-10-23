@@ -1,0 +1,26 @@
+name: flet_doc_scanner
+description: Flet - skaner dokumentow Google ML Kit
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.2.3 <4.0.0'
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 0.4.1 to ostatnia wersja zgodna z Flutterem 3.41 (flet 0.85.3);
+  # 0.5.0+ wymaga Fluttera >= 3.44. Natywny skaner ten sam (16.0.0).
+  google_mlkit_document_scanner: 0.4.1
+
+  # Sciezka jak w oficjalnych rozszerzeniach Flet - flet build nadpisuje ja
+  # przez dependency_overrides w glownym pubspec aplikacji.
+  flet:
+    path: ../../../../../../../packages/flet
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0

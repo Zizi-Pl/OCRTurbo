@@ -11,7 +11,7 @@ from image_viewer import PełnyEdytorObrazu
 
 class ModulScanMixin:
     def _inicjalizuj_modul_skan(self):
-        self.zdjecie_skan = {"sciezka": None}
+        self.zdjecie_skan = {"sciezka": None, "strony": None, "pdf": None}
 
     def _inicjalizuj_modul_skaner(self):
         self._inicjalizuj_modul_skan()
@@ -71,7 +71,7 @@ class ModulScanMixin:
             content=ft.Row([ft.Icon(ft.Icons.SHARE), ft.Text("Udostępnij gotowy skan (JPG)")], alignment=ft.MainAxisAlignment.CENTER),
             height=48, visible=False,
             style=ft.ButtonStyle(bgcolor=ft.Colors.PURPLE_800, color=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=8)),
-            on_click=lambda e: asyncio.create_task(self.udostepnij_plik_skan(self.zdjecie_skan["sciezka"]))
+            on_click=lambda e: asyncio.create_task(self.udostepnij_skan())
         )
 
         self.btn_usun_foto_skan = ft.ElevatedButton(
@@ -125,9 +125,51 @@ class ModulScanMixin:
         self.btn_usun_foto_skan.visible = czy_ma
         self.page.update()
 
+    def _ustaw_napis_udostepniania_skan(self):
+        strony = self.zdjecie_skan.get("strony") or []
+        if self.zdjecie_skan.get("pdf"):
+            napis = f"Udostępnij skan (PDF, {len(strony)} str.)"
+        elif len(strony) > 1:
+            napis = f"Udostępnij skan ({len(strony)} × JPG)"
+        else:
+            napis = "Udostępnij gotowy skan (JPG)"
+        self.btn_udostepnij_skan.content.controls[1].value = napis
+
+    def przyjmij_skany_skan(self, obrazy: list, pdf=None):
+        """Strony ze skanera Google - gotowe do udostępnienia."""
+        self.zdjecie_skan["sciezka"] = obrazy[0]
+        self.zdjecie_skan["strony"] = list(obrazy)
+        self.zdjecie_skan["pdf"] = pdf
+        self.podglad_skan.src = None
+        self.podglad_skan.src = obrazy[0]
+        self._ustaw_napis_udostepniania_skan()
+        self.ustaw_stan_foto_skan(True)
+        ile = len(obrazy)
+        self.status_skan.value = (
+            f"✅ Zeskanowano {ile} str. Możesz od razu udostępnić skan."
+            if ile > 1 else "✅ Skan gotowy. Możesz od razu udostępnić plik."
+        )
+        self.status_skan.color = ft.Colors.GREEN_ACCENT
+        self.page.update()
+
+    async def udostepnij_skan(self):
+        """PDF ze wszystkimi stronami (jeśli jest aktualny), inaczej strony JPG."""
+        pdf = self.zdjecie_skan.get("pdf")
+        if pdf and os.path.exists(pdf):
+            await self.udostepnij_plik_skan(pdf, tytul="Skan dokumentu (PDF)")
+            return
+        strony = [s for s in (self.zdjecie_skan.get("strony") or []) if os.path.exists(s)]
+        if len(strony) > 1:
+            await self.udostepnij_plik_skan(strony, tytul=f"Skan dokumentu ({len(strony)} str.)")
+        else:
+            await self.udostepnij_plik_skan(self.zdjecie_skan["sciezka"])
+
     def ustaw_nowy_obraz_skan(self, sciezka: str):
         nowa_sciezka = image_processor.przygotuj_obraz_wejsciowy(sciezka, prefiks="img_skan")
         self.zdjecie_skan["sciezka"] = nowa_sciezka
+        self.zdjecie_skan["strony"] = None
+        self.zdjecie_skan["pdf"] = None
+        self._ustaw_napis_udostepniania_skan()
         self.podglad_skan.src = None
         self.podglad_skan.src = nowa_sciezka
 
@@ -156,6 +198,12 @@ class ModulScanMixin:
         self.page.update()
 
     async def _zatwierdz_edycje_skan(self, sciezka_po_edycji: str):
+        strony = self.zdjecie_skan.get("strony")
+        if strony:
+            strony[0] = sciezka_po_edycji  # edytor zmienia 1. stronę skanu
+        # PDF ze skanera nie zawiera już poprawek - udostępniamy strony JPG
+        self.zdjecie_skan["pdf"] = None
+        self._ustaw_napis_udostepniania_skan()
         self.zdjecie_skan["sciezka"] = sciezka_po_edycji
         self.podglad_skan.src = None
         self.podglad_skan.src = sciezka_po_edycji
@@ -166,15 +214,21 @@ class ModulScanMixin:
         self.page.update()
 
     def usun_wybrane_zdjecie_skan(self):
-        sciezka_pliku = self.zdjecie_skan.get("sciezka")
-        if sciezka_pliku and os.path.exists(sciezka_pliku):
-            try:
-                os.remove(sciezka_pliku)
-                self.ui.dopisz_log(f"Usunięto plik: {os.path.basename(sciezka_pliku)}")
-            except Exception as err:
-                self.ui.dopisz_log(f"Błąd usuwania pliku: {err}", ft.Colors.AMBER)
+        pliki = set(self.zdjecie_skan.get("strony") or [])
+        for klucz in ("sciezka", "pdf"):
+            if self.zdjecie_skan.get(klucz):
+                pliki.add(self.zdjecie_skan[klucz])
+        for sciezka_pliku in pliki:
+            if os.path.exists(sciezka_pliku):
+                try:
+                    os.remove(sciezka_pliku)
+                    self.ui.dopisz_log(f"Usunięto plik: {os.path.basename(sciezka_pliku)}")
+                except Exception as err:
+                    self.ui.dopisz_log(f"Błąd usuwania pliku: {err}", ft.Colors.AMBER)
 
         self.zdjecie_skan["sciezka"] = None
+        self.zdjecie_skan["strony"] = None
+        self.zdjecie_skan["pdf"] = None
         self.podglad_skan.src = None
         self.podglad_skan.src = config.PUSTY_OBRAZ
         self.ustaw_stan_foto_skan(False)
@@ -191,8 +245,9 @@ class ModulScanMixin:
             self.status_skan.value = f"Błąd wyboru pliku: {e_pick}"
             self.page.update()
 
-    async def udostepnij_plik_skan(self, sciezka_pliku: str):
-        if not sciezka_pliku or not os.path.exists(sciezka_pliku):
+    async def udostepnij_plik_skan(self, sciezki, tytul: str = "Skan dokumentu (JPG)"):
+        pliki = [sciezki] if isinstance(sciezki, str) else list(sciezki or [])
+        if not pliki or not all(os.path.exists(s) for s in pliki):
             self.ui.pokaz_okno_bledu("Brak pliku", "Wskazany plik nie istnieje na dysku.")
             return
 
@@ -200,11 +255,11 @@ class ModulScanMixin:
             if hasattr(self.ui.serwis_udostepniania, "share_files"):
                 try:
                     await self.ui.serwis_udostepniania.share_files(
-                        [ft.ShareFile.from_path(sciezka_pliku)],
-                        text="Skan dokumentu (JPG)"
+                        [ft.ShareFile.from_path(s) for s in pliki],
+                        text=tytul
                     )
                 except Exception:
-                    await self.ui.serwis_udostepniania.share_files([sciezka_pliku])
+                    await self.ui.serwis_udostepniania.share_files(pliki)
             else:
                 self.ui.dopisz_log("Błąd: Serwis udostępniania niedostępny.", ft.Colors.RED)
         except Exception as err_s:

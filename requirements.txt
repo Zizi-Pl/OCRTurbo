@@ -1,8 +1,9 @@
 flet==0.85.3
-flet-camera
+flet-camera==0.85.3
 httpx
 Pillow
 thefuzz
 python-docx
 openpyxl
 pypdf
+./rozszerzenia/flet-doc-scanner
