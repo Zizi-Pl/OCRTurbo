@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import httpx
 from datetime import datetime
 import flet as ft
 from PIL import Image
@@ -560,7 +561,9 @@ class ModulPZMixin:
                     ],
                     "temperature": 0.0,
                     "max_tokens": limit_tokenow,
-                    "chat_template_kwargs": {"enable_thinking": False}
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    # Wymuszony schemat JSON (structured output w LM Studio)
+                    "response_format": core.SCHEMAT_FAKTURY,
                 }
                 cel_logu = f"LM Studio ({wybrany_model} @ {ip}:{port})"
 
@@ -572,28 +575,44 @@ class ModulPZMixin:
                 self.status_text_pz.color = ft.Colors.AMBER_ACCENT
                 self.page.update()
 
-            odp_tekst, _, staty = await network.wyslij_zadanie_ai(
-                url=pelny_url,
-                headers=naglowki,
-                payload=cialo_zapytania,
-                cel_logu=cel_logu,
-                on_status=status_http_cb,
-                on_log=log_http_cb
-            )
-
-            dane = None
             try:
-                dane = json.loads(odp_tekst)
-            except json.JSONDecodeError:
-                dopasowanie = re.search(r'\{.*\}', odp_tekst, re.DOTALL)
-                if dopasowanie:
-                    try:
-                        dane = json.loads(dopasowanie.group(0))
-                    except Exception:
-                        pass
+                odp_tekst, _, staty = await network.wyslij_zadanie_ai(
+                    url=pelny_url,
+                    headers=naglowki,
+                    payload=cialo_zapytania,
+                    cel_logu=cel_logu,
+                    on_status=status_http_cb,
+                    on_log=log_http_cb
+                )
+            except httpx.HTTPStatusError as err_http:
+                # Starszy serwer/model bez obsługi schematu JSON - ponów bez niego
+                if (
+                    not uzywa_chmury
+                    and "response_format" in cialo_zapytania
+                    and err_http.response.status_code in (400, 422)
+                ):
+                    self.ui.dopisz_log(
+                        "Serwer nie obsługuje wymuszonego schematu JSON - ponawiam bez niego.",
+                        ft.Colors.AMBER,
+                    )
+                    cialo_zapytania.pop("response_format", None)
+                    odp_tekst, _, staty = await network.wyslij_zadanie_ai(
+                        url=pelny_url,
+                        headers=naglowki,
+                        payload=cialo_zapytania,
+                        cel_logu=cel_logu,
+                        on_status=status_http_cb,
+                        on_log=log_http_cb
+                    )
+                else:
+                    raise
+
+            dane = core.wczytaj_json_z_odpowiedzi(odp_tekst)
 
             if dane is None:
                 self.ui.dopisz_log(f"Błąd parsowania JSON. Odpowiedź surowa:\n{odp_tekst[:250]}...", ft.Colors.RED)
+                if staty.get("finish_reason") == "length":
+                    raise ValueError("Odpowiedź modelu została ucięta (limit tokenów) - spróbuj ponownie lub użyj większego modelu.")
                 raise ValueError("Model nie zwrócił poprawnego formatu JSON.")
 
             # Przekształcenie surowych kluczy z OCR na jednolity standard słownika

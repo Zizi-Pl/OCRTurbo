@@ -1,6 +1,6 @@
 [project]
 name = "OCRTurbo"
-version = "2.4.6"
+version = "2.4.7"
 description = "Skaner PZ do EDI i inne"
 requires-python = ">=3.11"
 dependencies = [
@@ -27,8 +27,8 @@ org = "com.OCRTurbo"
 product = "OCRTurbo"
 company = "OCRTurbo"
 copyright = "Copyright (C) 2026"
-build_version = "2.4.6"
-build_number = 246
+build_version = "2.4.7"
+build_number = 247
 # Lokalne rozszerzenie jest instalowane ze źródeł (nie ma go na PyPI)
 source_packages = ["flet-doc-scanner"]
 

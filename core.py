@@ -898,6 +898,75 @@ def filtruj_plik_graficzny(sciezka_zrodlowa: str, typ: str) -> str:
 
 
 # --- OCR I WALIDACJA DANYCH ---
+
+# Schemat odpowiedzi modelu dla LM Studio (structured output). Wszystkie liczby
+# jako TEKST - małe modele wpisują polski przecinek (4,085) bez cudzysłowu,
+# co psuje JSON. Schemat wymusza poprawną składnię na poziomie generowania.
+def _schemat_obiekt(pola: dict) -> dict:
+    return {
+        "type": "object",
+        "properties": pola,
+        "required": list(pola.keys()),
+        "additionalProperties": False,
+    }
+
+
+_TEKST = {"type": "string"}
+SCHEMAT_FAKTURY = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "faktura",
+        "strict": True,
+        "schema": _schemat_obiekt({
+            "nr": _TEKST,
+            "dt": _TEKST,
+            "w": _schemat_obiekt({"n": _TEKST, "nip": _TEKST}),
+            "o": _schemat_obiekt({"n": _TEKST, "nip": _TEKST}),
+            "p": {
+                "type": "array",
+                "items": _schemat_obiekt({
+                    "n": _TEKST, "k": _TEKST, "j": _TEKST,
+                    "i": _TEKST, "c": _TEKST, "w": _TEKST,
+                }),
+            },
+            "sn": _TEKST,
+            "dz": _TEKST,
+        }),
+    },
+}
+
+
+def wczytaj_json_z_odpowiedzi(tekst: str):
+    """Wyrozumiały odczyt JSON-a z odpowiedzi modelu.
+
+    Kolejno próbuje: tekst bez zmian, po usunięciu znaczników ```json /
+    <think>, sam fragment {...}, a na końcu z naprawą typowych błędów małych
+    modeli: liczby z przecinkiem dziesiętnym bez cudzysłowu ("i": 4,085)
+    i przecinek przed } lub ]. Zwraca słownik albo None.
+    """
+    if not tekst:
+        return None
+    kandydaci = [tekst]
+    t = re.sub(r"<think>.*?</think>", "", tekst, flags=re.DOTALL)
+    t = re.sub(r"```(?:json)?", "", t).strip()
+    kandydaci.append(t)
+    poczatek, koniec = t.find("{"), t.rfind("}")
+    if poczatek != -1 and koniec > poczatek:
+        t = t[poczatek:koniec + 1]
+        kandydaci.append(t)
+    naprawiony = re.sub(r'(:\s*)(-?\d[\d \u00a0]*,\d+)(?=\s*[,}\]])', r'\1"\2"', t)
+    naprawiony = re.sub(r",(\s*[}\]])", r"\1", naprawiony)
+    kandydaci.append(naprawiony)
+
+    for kandydat in kandydaci:
+        try:
+            wynik = json.loads(kandydat)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(wynik, dict):
+            return wynik
+    return None
+
 def oczysc_odpowiedz_llm(surowe_dane) -> dict:
     if not isinstance(surowe_dane, dict):
         raise ValueError("Model zwrócił odpowiedź, która nie jest obiektem JSON.")
@@ -915,22 +984,30 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
         return s if s else domyslna
 
     dane = {}
-    dane["nr_dok"] = _t(
-        surowe_dane.get("nr", surowe_dane.get("nr_dok")), "faktura"
-    )
-    dane["data"] = normalizuj_date(
-        _t(
-            surowe_dane.get("dt", surowe_dane.get("data")),
-            datetime.now().strftime("%d.%m.%Y"),
-        )
-    )
+    ostrzezenia_dok = []
+    nr_odczytany = _t(surowe_dane.get("nr", surowe_dane.get("nr_dok")))
+    if not nr_odczytany:
+        ostrzezenia_dok.append("brak numeru faktury (wstawiono „faktura”) – wpisz w PC-Markecie")
+    dane["nr_dok"] = nr_odczytany or "faktura"
+
+    data_odczytana = _t(surowe_dane.get("dt", surowe_dane.get("data")))
+    if not data_odczytana:
+        ostrzezenia_dok.append("brak daty faktury (wstawiono dzisiejszą)")
+    dane["data"] = normalizuj_date(data_odczytana or datetime.now().strftime("%d.%m.%Y"))
 
     # --- WYSTAWCA ---
     wyst = _d(surowe_dane.get("w", surowe_dane.get("wystawca")))
-    nip_wyst_raw = normalizuj_nip(_t(wyst.get("nip")))
+    nip_wyst_tekst = _t(wyst.get("nip"))
+    nip_wyst_raw = normalizuj_nip(nip_wyst_tekst)
     nip_wyst_poprawny = (
         nip_wyst_raw if sprawdz_poprawnosc_nip(nip_wyst_raw) else ""
     )
+    if not nip_wyst_tekst:
+        ostrzezenia_dok.append("brak NIP dostawcy")
+    elif not nip_wyst_poprawny:
+        ostrzezenia_dok.append(
+            f"odczytany NIP dostawcy „{nip_wyst_tekst}” jest błędny (suma kontrolna) – pominięto go w EDI"
+        )
     dane["wystawca"] = {
         "nazwa": _t(wyst.get("n", wyst.get("nazwa"))),
         "nip": nip_wyst_poprawny,
@@ -952,7 +1029,7 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
         if not isinstance(p, dict):
             continue
 
-        jm_str = _t(p.get("j", p.get("jm")), "kg").lower()
+        jm_str = _t(p.get("j", p.get("jm")), "kg").lower().rstrip(".") or "kg"
         ilosc_odczytana = parsuj_liczbe(p.get("i", p.get("ilosc")))
 
         ilosc_wymuszona = False
@@ -993,6 +1070,7 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
         )
 
     dane["pozycje"] = pozycje
+    dane["ostrzezenia_dokumentu"] = ostrzezenia_dok
     dane["suma_netto_dokument"] = _t(
         surowe_dane.get("sn", surowe_dane.get("suma_netto_dokument"))
     )
@@ -1001,6 +1079,9 @@ def oczysc_odpowiedz_llm(surowe_dane) -> dict:
         surowe_dane.get("dz", surowe_dane.get("do_zaplaty"))
     )
     return dane
+
+
+JEDNOSTKI_PCMARKET = ("kg", "szt", "op")
 
 
 def ostrzezenia_pozycji(poz: dict) -> list:
@@ -1024,6 +1105,10 @@ def ostrzezenia_pozycji(poz: dict) -> list:
 
     if wartosc is None or wartosc <= 0:
         ost.append("nieczytelna wartość netto")
+
+    jm = str(poz.get("jm") or "").strip().lower().rstrip(".")
+    if jm and jm not in JEDNOSTKI_PCMARKET:
+        ost.append(f"nietypowa jednostka „{jm}” – sprawdź (kg / szt / op)")
 
     if ilosc and ilosc > 0 and cena is not None and wartosc is not None:
         oczekiwana = ilosc * cena
