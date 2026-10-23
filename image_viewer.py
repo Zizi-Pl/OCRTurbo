@@ -459,7 +459,7 @@ class PełnyEdytorObrazu(ft.Container):
         if len(self.historia_pelna) > 1:
             self.historia_pelna.pop()
             poprzednia = self.historia_pelna[-1]
-            self.sciezka_pelna_bazowa =图标_prev = poprzednia
+            self.sciezka_pelna_bazowa = poprzednia
             self.sciezka_pelna_aktualna = poprzednia
 
             baza_podgladu = image_processor.przygotuj_kopie_podgladowa(poprzednia)

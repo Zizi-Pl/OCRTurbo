@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Wynik budowania Flet
+build/
+
+# Klucze podpisu - NIGDY nie commitowac
+*.keystore
+*.jks
+
+# Dane i konfiguracja uzytkownika (klucze API, baza towarowa, kopie zapasowe)
+ocrlmm_mobile_config.json
+backup_ocrlmm_*.json
+kartoteka_towarowa.json
+aliasy_ocr.json
+mapowania_towarow.json
+*.xlsx
+NOWA_BAZA.txt
+
+# Pliki robocze aplikacji
+img_*.jpg
+foto_*.jpg
+crop_*.jpg
+flt_*.jpg
+rot_*.jpg
+adj_*.jpg
+preview_editor*.jpg
+dok_*.*
+doc_*.txt
+logi_ocr_*.txt
+*.tmp
+
+# Narzedzia pomocnicze
+scalony_kod.txt
+
+# Instalacja pip -e
+*.egg-info/

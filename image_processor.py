@@ -43,7 +43,11 @@ def przygotuj_obraz_wejsciowy(sciezka_zrodlowa: str, prefiks: str = "img_in") ->
 
 
 def obroc_obraz(sciezka_zrodlowa: str, kat: int, prefiks: str = "rot") -> str:
-    """Obraca fizycznie obraz o zadany kąt (np. 90 lub -90 stopni)."""
+    """Obraca fizycznie obraz o zadany kąt (np. 90 lub -90 stopni).
+
+    Plik źródłowy NIE jest usuwany - edytor trzyma go w historii, aby działało
+    "Cofnij". Pliki robocze są sprzątane przez core.wyczysc_pliki_robocze().
+    """
     with Image.open(sciezka_zrodlowa) as img:
         img = ImageOps.exif_transpose(img)
         obrocony = img.rotate(kat, expand=True)
@@ -52,12 +56,6 @@ def obroc_obraz(sciezka_zrodlowa: str, kat: int, prefiks: str = "rot") -> str:
             f"{prefiks}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
         )
         konwertuj_do_rgb(obrocony).save(nowa_sciezka, format="JPEG", quality=95)
-
-    if sciezka_zrodlowa and os.path.exists(sciezka_zrodlowa):
-        try:
-            os.remove(sciezka_zrodlowa)
-        except Exception:
-            pass
 
     return nowa_sciezka
 

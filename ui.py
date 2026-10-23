@@ -455,6 +455,12 @@ class UIManager:
                 k["local_api_key"] = self.txt_local_api_key.value.strip()
                 k["image_resolution"] = int(self.dd_rozdzielczosc.value)
 
+                # Kopia jest udostępniana przez komunikatory / e-mail, więc NIE
+                # zawiera kluczy API. Po imporcie na innym urządzeniu klucz
+                # trzeba wpisać ręcznie (istniejący klucz nie jest nadpisywany).
+                for tajny in ("gemini_api_key", "local_api_key"):
+                    k.pop(tajny, None)
+
                 mapa = core.wczytaj_baze_mapowan()
                 pakiet = {
                     "wersja": "2.0",
@@ -483,10 +489,18 @@ class UIManager:
                     return
                 with open(pliki[0].path, "r", encoding="utf-8-sig") as f:
                     dane_b = json.load(f)
-                nowa_k = dane_b.get("konfiguracja", dane_b)
+                nowa_k = dict(dane_b.get("konfiguracja", dane_b))
                 nowe_m = dane_b.get("mapowania", {})
 
                 konf = config.wczytaj_konfiguracje()
+                # Pusty klucz z kopii nie może skasować klucza już zapisanego.
+                for tajny in ("gemini_api_key", "local_api_key"):
+                    if not str(nowa_k.get(tajny) or "").strip():
+                        nowa_k.pop(tajny, None)
+                # Ścieżka bazy z innego urządzenia (np. C:\... z Windows) nie
+                # istnieje tutaj - zostawiamy lokalną.
+                if not os.path.exists(str(nowa_k.get("baza_file_path") or "")):
+                    nowa_k.pop("baza_file_path", None)
                 konf.update(nowa_k)
                 config.zapisz_konfiguracje(konf)
 
@@ -555,16 +569,25 @@ class UIManager:
                     src = pliki[0].path
                     nazwa = os.path.basename(src)
                     
-                    baza_wczytana = core.wczytaj_baze_pcmarket(src)
+                    if src.lower().endswith(".xlsx"):
+                        # Wymuszamy import - plik wybrany przez użytkownika może
+                        # mieć starszą datę niż obecna kartoteka JSON.
+                        baza_wczytana, _, _ = core.importuj_baze_z_excela(src)
+                    else:
+                        baza_wczytana = core.wczytaj_baze_pcmarket(src)
                     if not baza_wczytana:
                         self.pokaz_okno_bledu("Nieprawidłowy plik bazy", f"W pliku {nazwa} nie znaleziono żadnych towarów.", powrot_do=self.dlg_ustawienia)
                         return
 
-                    dst = os.path.join(config.KATALOG_DANYCH, nazwa)
-                    try:
-                        shutil.copyfile(src, dst)
-                    except Exception:
-                        dst = src
+                    if src.lower().endswith(".xlsx"):
+                        # Dalej pracujemy na kartotece JSON (szybki odczyt z cache).
+                        dst = core.KARTOTEKA_FILE
+                    else:
+                        dst = os.path.join(config.KATALOG_DANYCH, nazwa)
+                        try:
+                            shutil.copyfile(src, dst)
+                        except Exception:
+                            dst = src
 
                     konf = config.wczytaj_konfiguracje()
                     konf["baza_file_path"] = dst
@@ -885,7 +908,11 @@ class UIManager:
         if not kod_szukany:
             return ""
         kod_czysty = core.normalizuj_kod_porownawczy(kod_szukany)
-        prefiks = kod_czysty[:6] if len(kod_czysty) >= 6 else kod_czysty
+        # Dopasowanie po prefiksie ma sens wyłącznie dla kodów wagowych
+        # (np. '290123' <-> '290123???????'). Dla zwykłych kodów wymagamy
+        # zgodności 1:1 - inaczej nieistniejący kod pokazywał nazwę INNEGO towaru.
+        kod_wagowy = kod_czysty.startswith(("28", "29")) and len(kod_czysty) >= 6
+        prefiks = kod_czysty[:6] if kod_wagowy else ""
 
         if baza is None or not baza:
             baza = self._pobierz_baze_robocza()
@@ -900,21 +927,21 @@ class UIManager:
                     if core.normalizuj_kod_porownawczy(kk) == kod_czysty:
                         return t.get("nazwa", "")
 
-            if len(prefiks) >= 4:
+            if prefiks:
                 for t in baza:
                     k_t = core.normalizuj_kod_porownawczy(t.get("kod", ""))
-                    if k_t.startswith(prefiks) or prefiks.startswith(k_t):
+                    if k_t and (k_t.startswith(prefiks) or prefiks.startswith(k_t)):
                         return t.get("nazwa", "")
                     for kk in t.get("kody_kreskowe", []):
                         kk_s = core.normalizuj_kod_porownawczy(kk)
-                        if kk_s.startswith(prefiks) or prefiks.startswith(kk_s):
+                        if kk_s and (kk_s.startswith(prefiks) or prefiks.startswith(kk_s)):
                             return t.get("nazwa", "")
 
         mapa = core.wczytaj_baze_mapowan()
         for _, val in mapa.items():
             if isinstance(val, dict):
                 k = core.normalizuj_kod_porownawczy(val.get("kod", ""))
-                if (k == kod_czysty or (len(prefiks) >= 4 and k.startswith(prefiks))) and val.get("nazwa_baza"):
+                if (k == kod_czysty or (prefiks and k.startswith(prefiks))) and val.get("nazwa_baza"):
                     return val.get("nazwa_baza")
 
         return ""
